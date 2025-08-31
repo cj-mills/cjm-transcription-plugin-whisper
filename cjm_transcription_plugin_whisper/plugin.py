@@ -21,7 +21,8 @@ try:
     import whisper
     from whisper import load_model
     from whisper import transcribe
-    WHISPER_AVAILABLE = True
+    from cjm_ffmpeg_utils.core import FFMPEG_AVAILABLE
+    WHISPER_AVAILABLE = True and FFMPEG_AVAILABLE
 except ImportError:
     WHISPER_AVAILABLE = False
     
