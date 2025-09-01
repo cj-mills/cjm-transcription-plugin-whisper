@@ -50,6 +50,7 @@ from cjm_transcription_plugin_whisper.plugin import (
 ``` python
 class WhisperLocalPlugin:
     def __init__(self):
+        """Initialize the Whisper plugin with default configuration."""
         self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
         self.config = {}
         self.model = None
@@ -57,10 +58,13 @@ class WhisperLocalPlugin:
         self.model_dir = None
     
     @property
-    def name(self) -> str
+    def name(
+        self
+    ) -> str:  # Returns the plugin name
     "OpenAI Whisper transcription plugin."
     
     def __init__(self):
+            """Initialize the Whisper plugin with default configuration."""
             self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
             self.config = {}
             self.model = None
@@ -68,62 +72,47 @@ class WhisperLocalPlugin:
             self.model_dir = None
         
         @property
-        def name(self) -> str
+        def name(
+            self
+        ) -> str:  # Returns the plugin name
+        "Initialize the Whisper plugin with default configuration."
     
-    def name(self) -> str:
-            return "whisper_local"
-        
-        @property
-        def version(self) -> str
+    def name(
+            self
+        ) -> str:  # Returns the plugin name
+        "Get the plugin name identifier."
     
-    def version(self) -> str:
-            return "1.0.0"
-        
-        @property
-        def supported_formats(self) -> List[str]
+    def version(
+            self
+        ) -> str:  # Returns the plugin version
+        "Get the plugin version string."
     
-    def supported_formats(self) -> List[str]:
-            return ["wav", "mp3", "flac", "m4a", "ogg", "webm", "mp4", "avi", "mov"]
-        
-        def get_config_schema(self) -> Dict[str, Any]
+    def supported_formats(
+            self
+        ) -> List[str]:  # Returns list of supported audio formats
+        "Get the list of supported audio file formats."
     
-    def get_config_schema(self) -> Dict[str, Any]:
-            """Return configuration schema for Whisper."""
-            return {
-                "$schema": "http://json-schema.org/draft-07/schema#",
+    def get_config_schema(
+            self
+        ) -> Dict[str, Any]:  # Returns the configuration schema dictionary
         "Return configuration schema for Whisper."
     
-    def get_current_config(self) -> Dict[str, Any]:
-            """Return current configuration."""
-            defaults = self.get_config_defaults()
-            return {**defaults, **self.config}
-        
-        def initialize(self, config: Optional[Dict[str, Any]] = None) -> None
+    def get_current_config(
+            self
+        ) -> Dict[str, Any]:  # Returns the current configuration dictionary
         "Return current configuration."
     
-    def initialize(self, config: Optional[Dict[str, Any]] = None) -> None:
-            """Initialize the plugin with configuration."""
-            if config
+    def initialize(
+            self,
+            config: Optional[Dict[str, Any]] = None  # Configuration dictionary to initialize the plugin
+        ) -> None
         "Initialize the plugin with configuration."
     
-    def execute(self, audio: Union[AudioData, str, Path], **kwargs) -> TranscriptionResult:
-            """Transcribe audio using Whisper.
-            
-            Args:
-                audio: Audio data or path to audio file
-                **kwargs: Additional arguments to override config
-                
-            Returns:
-                TranscriptionResult with transcribed text and metadata
-            """
-            # Load model if not already loaded
-            self._load_model()
-            
-            # Prepare audio file
-            audio_path = self._prepare_audio(audio)
-            temp_file_created = not isinstance(audio, (str, Path))
-            
-            try
+    def execute(
+            self,
+            audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
+            **kwargs
+        ) -> TranscriptionResult:  # Returns transcription result with text and metadata
         "Transcribe audio using Whisper.
 
 Args:
@@ -133,15 +122,13 @@ Args:
 Returns:
     TranscriptionResult with transcribed text and metadata"
     
-    def is_available(self) -> bool:
-            """Check if Whisper is available."""
-            return WHISPER_AVAILABLE
-        
-        def cleanup(self) -> None
+    def is_available(
+            self
+        ) -> bool:  # Returns True if Whisper and its dependencies are available
         "Check if Whisper is available."
     
-    def cleanup(self) -> None:
-            """Clean up resources."""
-            if self.model is not None
+    def cleanup(
+            self
+        ) -> None
         "Clean up resources."
 ```

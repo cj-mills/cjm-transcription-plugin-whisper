@@ -34,6 +34,7 @@ class WhisperLocalPlugin(PluginInterface):
     """OpenAI Whisper transcription plugin."""
     
     def __init__(self):
+        """Initialize the Whisper plugin with default configuration."""
         self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
         self.config = {}
         self.model = None
@@ -41,18 +42,29 @@ class WhisperLocalPlugin(PluginInterface):
         self.model_dir = None
     
     @property
-    def name(self) -> str:
+    def name(
+        self
+    ) -> str:  # Returns the plugin name
+        """Get the plugin name identifier."""
         return "whisper_local"
     
     @property
-    def version(self) -> str:
+    def version(
+        self
+    ) -> str:  # Returns the plugin version
+        """Get the plugin version string."""
         return "1.0.0"
     
     @property
-    def supported_formats(self) -> List[str]:
+    def supported_formats(
+        self
+    ) -> List[str]:  # Returns list of supported audio formats
+        """Get the list of supported audio file formats."""
         return ["wav", "mp3", "flac", "m4a", "ogg", "webm", "mp4", "avi", "mov"]
     
-    def get_config_schema(self) -> Dict[str, Any]:
+    def get_config_schema(
+        self
+    ) -> Dict[str, Any]:  # Returns the configuration schema dictionary
         """Return configuration schema for Whisper."""
         return {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -198,12 +210,17 @@ class WhisperLocalPlugin(PluginInterface):
             "additionalProperties": False
         }
     
-    def get_current_config(self) -> Dict[str, Any]:
+    def get_current_config(
+        self
+    ) -> Dict[str, Any]:  # Returns the current configuration dictionary
         """Return current configuration."""
         defaults = self.get_config_defaults()
         return {**defaults, **self.config}
     
-    def initialize(self, config: Optional[Dict[str, Any]] = None) -> None:
+    def initialize(
+        self,
+        config: Optional[Dict[str, Any]] = None  # Configuration dictionary to initialize the plugin
+    ) -> None:
         """Initialize the plugin with configuration."""
         if config:
             is_valid, error = self.validate_config(config)
@@ -225,7 +242,9 @@ class WhisperLocalPlugin(PluginInterface):
         
         self.logger.info(f"Initialized Whisper plugin with model '{self.config['model']}' on device '{self.device}'")
     
-    def _load_model(self) -> None:
+    def _load_model(
+        self
+    ) -> None:
         """Load the Whisper model (lazy loading)."""
         if self.model is None:
             try:
@@ -245,7 +264,10 @@ class WhisperLocalPlugin(PluginInterface):
             except Exception as e:
                 raise RuntimeError(f"Failed to load Whisper model: {e}")
     
-    def _prepare_audio(self, audio: Union[AudioData, str, Path]) -> str:
+    def _prepare_audio(
+        self,
+        audio: Union[AudioData, str, Path]  # Audio data, file path, or Path object to prepare
+    ) -> str:  # Returns path to the prepared audio file
         """Prepare audio for Whisper processing.
         
         Args:
@@ -282,7 +304,11 @@ class WhisperLocalPlugin(PluginInterface):
         else:
             raise ValueError(f"Unsupported audio input type: {type(audio)}")
     
-    def execute(self, audio: Union[AudioData, str, Path], **kwargs) -> TranscriptionResult:
+    def execute(
+        self,
+        audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
+        **kwargs
+    ) -> TranscriptionResult:  # Returns transcription result with text and metadata
         """Transcribe audio using Whisper.
         
         Args:
@@ -396,11 +422,15 @@ class WhisperLocalPlugin(PluginInterface):
                 except Exception:
                     pass
     
-    def is_available(self) -> bool:
+    def is_available(
+        self
+    ) -> bool:  # Returns True if Whisper and its dependencies are available
         """Check if Whisper is available."""
         return WHISPER_AVAILABLE
     
-    def cleanup(self) -> None:
+    def cleanup(
+        self
+    ) -> None:
         """Clean up resources."""
         if self.model is not None:
             self.logger.info("Unloading Whisper model")
