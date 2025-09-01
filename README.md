@@ -111,16 +111,9 @@ class WhisperLocalPlugin:
     def execute(
             self,
             audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
-            **kwargs
+            **kwargs #  Additional arguments to override config
         ) -> TranscriptionResult:  # Returns transcription result with text and metadata
-        "Transcribe audio using Whisper.
-
-Args:
-    audio: Audio data or path to audio file
-    **kwargs: Additional arguments to override config
-    
-Returns:
-    TranscriptionResult with transcribed text and metadata"
+        "Transcribe audio using Whisper."
     
     def is_available(
             self

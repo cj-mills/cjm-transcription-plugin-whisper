@@ -268,14 +268,7 @@ class WhisperLocalPlugin(PluginInterface):
         self,
         audio: Union[AudioData, str, Path]  # Audio data, file path, or Path object to prepare
     ) -> str:  # Returns path to the prepared audio file
-        """Prepare audio for Whisper processing.
-        
-        Args:
-            audio: Audio data, file path, or Path object
-            
-        Returns:
-            Path to audio file that Whisper can process
-        """
+        """Prepare audio for Whisper processing."""
         if isinstance(audio, (str, Path)):
             # Already a file path
             return str(audio)
@@ -307,17 +300,9 @@ class WhisperLocalPlugin(PluginInterface):
     def execute(
         self,
         audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
-        **kwargs
+        **kwargs #  Additional arguments to override config
     ) -> TranscriptionResult:  # Returns transcription result with text and metadata
-        """Transcribe audio using Whisper.
-        
-        Args:
-            audio: Audio data or path to audio file
-            **kwargs: Additional arguments to override config
-            
-        Returns:
-            TranscriptionResult with transcribed text and metadata
-        """
+        """Transcribe audio using Whisper."""
         # Load model if not already loaded
         self._load_model()
         
