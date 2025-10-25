@@ -44,27 +44,27 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     @property
     def name(
         self
-    ) -> str:  # Returns the plugin name
+    ) -> str: # the plugin name identifier
         """Get the plugin name identifier."""
         return "whisper_local"
     
     @property
     def version(
         self
-    ) -> str:  # Returns the plugin version
+    ) -> str: # the plugin version string
         """Get the plugin version string."""
         return "1.0.0"
     
     @property
     def supported_formats(
         self
-    ) -> List[str]:  # Returns list of supported audio formats
+    ) -> List[str]: # list of supported audio file formats
         """Get the list of supported audio file formats."""
         return ["wav", "mp3", "flac", "m4a", "ogg", "webm", "mp4", "avi", "mov"]
 
     @staticmethod
     def get_config_schema(
-    ) -> Dict[str, Any]:  # Returns the configuration schema dictionary
+    ) -> Dict[str, Any]: # the configuration schema dictionary
         """Return configuration schema for Whisper."""
         return {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -212,14 +212,14 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     
     def get_current_config(
         self
-    ) -> Dict[str, Any]:  # Returns the current configuration dictionary
+    ) -> Dict[str, Any]: # the current configuration dictionary
         """Return current configuration."""
         defaults = self.get_config_defaults()
         return {**defaults, **self.config}
     
     def initialize(
         self,
-        config: Optional[Dict[str, Any]] = None  # Configuration dictionary to initialize the plugin
+        config: Optional[Dict[str, Any]] = None # configuration dictionary to initialize the plugin
     ) -> None:
         """Initialize the plugin with configuration."""
         if config:
@@ -266,8 +266,8 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     
     def _prepare_audio(
         self,
-        audio: Union[AudioData, str, Path]  # Audio data, file path, or Path object to prepare
-    ) -> str:  # Returns path to the prepared audio file
+        audio: Union[AudioData, str, Path] # audio data, file path, or Path object to prepare
+    ) -> str: # path to the prepared audio file
         """Prepare audio for Whisper processing."""
         if isinstance(audio, (str, Path)):
             # Already a file path
@@ -299,9 +299,9 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     
     def execute(
         self,
-        audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
-        **kwargs #  Additional arguments to override config
-    ) -> TranscriptionResult:  # Returns transcription result with text and metadata
+        audio: Union[AudioData, str, Path], # audio data or path to audio file to transcribe
+        **kwargs # additional arguments to override config
+    ) -> TranscriptionResult: # transcription result with text and metadata
         """Transcribe audio using Whisper."""
         # Load model if not already loaded
         self._load_model()
@@ -409,7 +409,7 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     
     def is_available(
         self
-    ) -> bool:  # Returns True if Whisper and its dependencies are available
+    ) -> bool: # True if Whisper and its dependencies are available
         """Check if Whisper is available."""
         return WHISPER_AVAILABLE
     

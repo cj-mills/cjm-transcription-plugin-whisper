@@ -60,7 +60,7 @@ class WhisperLocalPlugin:
     @property
     def name(
         self
-    ) -> str:  # Returns the plugin name
+    ) -> str: # the plugin name identifier
     "OpenAI Whisper transcription plugin."
     
     def __init__(self):
@@ -74,49 +74,49 @@ class WhisperLocalPlugin:
         @property
         def name(
             self
-        ) -> str:  # Returns the plugin name
+        ) -> str: # the plugin name identifier
         "Initialize the Whisper plugin with default configuration."
     
     def name(
             self
-        ) -> str:  # Returns the plugin name
+        ) -> str: # the plugin name identifier
         "Get the plugin name identifier."
     
     def version(
             self
-        ) -> str:  # Returns the plugin version
+        ) -> str: # the plugin version string
         "Get the plugin version string."
     
     def supported_formats(
             self
-        ) -> List[str]:  # Returns list of supported audio formats
+        ) -> List[str]: # list of supported audio file formats
         "Get the list of supported audio file formats."
     
     def get_config_schema(
-        ) -> Dict[str, Any]:  # Returns the configuration schema dictionary
+        ) -> Dict[str, Any]: # the configuration schema dictionary
         "Return configuration schema for Whisper."
     
     def get_current_config(
             self
-        ) -> Dict[str, Any]:  # Returns the current configuration dictionary
+        ) -> Dict[str, Any]: # the current configuration dictionary
         "Return current configuration."
     
     def initialize(
             self,
-            config: Optional[Dict[str, Any]] = None  # Configuration dictionary to initialize the plugin
+            config: Optional[Dict[str, Any]] = None # configuration dictionary to initialize the plugin
         ) -> None
         "Initialize the plugin with configuration."
     
     def execute(
             self,
-            audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
-            **kwargs #  Additional arguments to override config
-        ) -> TranscriptionResult:  # Returns transcription result with text and metadata
+            audio: Union[AudioData, str, Path], # audio data or path to audio file to transcribe
+            **kwargs # additional arguments to override config
+        ) -> TranscriptionResult: # transcription result with text and metadata
         "Transcribe audio using Whisper."
     
     def is_available(
             self
-        ) -> bool:  # Returns True if Whisper and its dependencies are available
+        ) -> bool: # True if Whisper and its dependencies are available
         "Check if Whisper is available."
     
     def cleanup(
