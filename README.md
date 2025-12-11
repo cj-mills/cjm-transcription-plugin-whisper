@@ -41,6 +41,7 @@ Detailed documentation for each module in the project:
 
 ``` python
 from cjm_transcription_plugin_whisper.plugin import (
+    WhisperPluginConfig,
     WhisperLocalPlugin
 )
 ```
@@ -48,75 +49,85 @@ from cjm_transcription_plugin_whisper.plugin import (
 #### Classes
 
 ``` python
+@dataclass
+class WhisperPluginConfig:
+    "Configuration for Whisper transcription plugin."
+    
+    model: str = field(...)
+    device: str = field(...)
+    language: Optional[str] = field(...)
+    task: str = field(...)
+    temperature: float = field(...)
+    temperature_increment_on_fallback: Optional[float] = field(...)
+    beam_size: int = field(...)
+    best_of: int = field(...)
+    patience: float = field(...)
+    length_penalty: Optional[float] = field(...)
+    suppress_tokens: str = field(...)
+    initial_prompt: Optional[str] = field(...)
+    condition_on_previous_text: bool = field(...)
+    fp16: bool = field(...)
+    compression_ratio_threshold: float = field(...)
+    logprob_threshold: float = field(...)
+    no_speech_threshold: float = field(...)
+    word_timestamps: bool = field(...)
+    prepend_punctuations: str = field(...)
+    append_punctuations: str = field(...)
+    threads: int = field(...)
+    model_dir: Optional[str] = field(...)
+    compile_model: bool = field(...)
+```
+
+``` python
 class WhisperLocalPlugin:
     def __init__(self):
         """Initialize the Whisper plugin with default configuration."""
         self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
-        self.config = {}
-        self.model = None
-        self.device = None
-        self.model_dir = None
-    
-    @property
-    def name(
-        self
-    ) -> str: # the plugin name identifier
+        self.config: WhisperPluginConfig = None
     "OpenAI Whisper transcription plugin."
     
     def __init__(self):
             """Initialize the Whisper plugin with default configuration."""
             self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
-            self.config = {}
-            self.model = None
-            self.device = None
-            self.model_dir = None
-        
-        @property
-        def name(
-            self
-        ) -> str: # the plugin name identifier
+            self.config: WhisperPluginConfig = None
         "Initialize the Whisper plugin with default configuration."
     
     def name(
             self
-        ) -> str: # the plugin name identifier
+        ) -> str:  # Plugin name identifier
         "Get the plugin name identifier."
     
     def version(
             self
-        ) -> str: # the plugin version string
+        ) -> str:  # Plugin version string
         "Get the plugin version string."
     
     def supported_formats(
             self
-        ) -> List[str]: # list of supported audio file formats
+        ) -> List[str]:  # List of supported audio file formats
         "Get the list of supported audio file formats."
-    
-    def get_config_schema(
-        ) -> Dict[str, Any]: # the configuration schema dictionary
-        "Return configuration schema for Whisper."
     
     def get_current_config(
             self
-        ) -> Dict[str, Any]: # the current configuration dictionary
+        ) -> WhisperPluginConfig:  # Current configuration dataclass
         "Return current configuration."
     
     def initialize(
             self,
-            config: Optional[Dict[str, Any]] = None # configuration dictionary to initialize the plugin
+            config: Optional[Any] = None  # Configuration dataclass, dict, or None
         ) -> None
         "Initialize the plugin with configuration."
     
     def execute(
             self,
-            audio: Union[AudioData, str, Path], # audio data or path to audio file to transcribe
-            **kwargs # additional arguments to override config
-        ) -> TranscriptionResult: # transcription result with text and metadata
+            audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
+            **kwargs  # Additional arguments to override config
+        ) -> TranscriptionResult:  # Transcription result with text and metadata
         "Transcribe audio using Whisper."
     
     def is_available(
             self
-        ) -> bool: # True if Whisper and its dependencies are available
+        ) -> bool:  # True if Whisper and its dependencies are available
         "Check if Whisper is available."
     
     def cleanup(
