@@ -260,6 +260,11 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     ) -> WhisperPluginConfig:  # Current configuration dataclass
         """Return current configuration."""
         return self.config
+
+    @staticmethod
+    def get_config_dataclass() -> WhisperPluginConfig: # Configuration dataclass
+        """Return dataclass describing the plugin's configuration options."""
+        return WhisperPluginConfig
     
     def initialize(
         self,

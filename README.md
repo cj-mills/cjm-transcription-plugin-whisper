@@ -112,6 +112,16 @@ class WhisperLocalPlugin:
         ) -> WhisperPluginConfig:  # Current configuration dataclass
         "Return current configuration."
     
+    def get_config_dataclass() -> WhisperPluginConfig: # Configuration dataclass
+            """Return dataclass describing the plugin's configuration options."""
+            return WhisperPluginConfig
+        
+        def initialize(
+            self,
+            config: Optional[Any] = None  # Configuration dataclass, dict, or None
+        ) -> None
+        "Return dataclass describing the plugin's configuration options."
+    
     def initialize(
             self,
             config: Optional[Any] = None  # Configuration dataclass, dict, or None
