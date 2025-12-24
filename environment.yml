@@ -1,0 +1,43 @@
+# Environment for cjm-transcription-plugin-whisper
+# Provides OpenAI Whisper with PyTorch CUDA support
+name: cjm-transcription-plugin-whisper
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  # Python version
+  - python=3.11
+
+  # System dependencies (conda-managed for proper linking)
+  - ffmpeg
+
+  # Pip dependencies
+  - pip
+  - pip:
+    # PyTorch with CUDA (adjust for target cuda version as needed)
+    - torch
+    - torchaudio
+
+    # Core plugin infrastructure
+    - cjm-plugin-system
+    - cjm-transcription-plugin-system
+
+    # Whisper and dependencies
+    - openai-whisper
+    - soundfile
+    - numpy
+
+    # FFmpeg utilities
+    - cjm-ffmpeg-utils
+
+    # Utilities
+    - fastcore
+    - pandas
+
+    # Worker dependencies (FastAPI, uvicorn, psutil, httpx)
+    - fastapi
+    - uvicorn
+    - psutil
+    - httpx

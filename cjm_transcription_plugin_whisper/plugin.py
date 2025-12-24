@@ -31,7 +31,7 @@ except ImportError:
 from cjm_transcription_plugin_system.plugin_interface import TranscriptionPlugin
 from cjm_transcription_plugin_system.core import AudioData, TranscriptionResult
 from cjm_plugin_system.utils.validation import (
-    dict_to_config, config_to_dict, validate_config,
+    dict_to_config, config_to_dict, validate_config, dataclass_to_jsonschema,
     SCHEMA_TITLE, SCHEMA_DESC, SCHEMA_MIN, SCHEMA_MAX, SCHEMA_ENUM
 )
 
@@ -235,31 +235,29 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         self.model_dir = None
     
     @property
-    def name(
-        self
-    ) -> str:  # Plugin name identifier
+    def name(self) -> str: # Plugin name identifier
         """Get the plugin name identifier."""
         return "whisper_local"
     
     @property
-    def version(
-        self
-    ) -> str:  # Plugin version string
+    def version(self) -> str: # Plugin version string
         """Get the plugin version string."""
         return "1.0.0"
     
     @property
-    def supported_formats(
-        self
-    ) -> List[str]:  # List of supported audio file formats
+    def supported_formats(self) -> List[str]: # List of supported audio file formats
         """Get the list of supported audio file formats."""
         return ["wav", "mp3", "flac", "m4a", "ogg", "webm", "mp4", "avi", "mov"]
 
-    def get_current_config(
-        self
-    ) -> WhisperPluginConfig:  # Current configuration dataclass
-        """Return current configuration."""
-        return self.config
+    def get_current_config(self) -> Dict[str, Any]: # Current configuration as dictionary
+        """Return current configuration state."""
+        if not self.config:
+            return {}
+        return config_to_dict(self.config)
+
+    def get_config_schema(self) -> Dict[str, Any]: # JSON Schema for configuration
+        """Return JSON Schema for UI generation."""
+        return dataclass_to_jsonschema(WhisperPluginConfig)
 
     @staticmethod
     def get_config_dataclass() -> WhisperPluginConfig: # Configuration dataclass
@@ -268,18 +266,26 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     
     def initialize(
         self,
-        config: Optional[Any] = None  # Configuration dataclass, dict, or None
+        config: Optional[Any] = None # Configuration dataclass, dict, or None
     ) -> None:
-        """Initialize the plugin with configuration."""
-        # Handle config input
-        if config is None:
-            self.config = WhisperPluginConfig()
-        elif isinstance(config, WhisperPluginConfig):
-            self.config = config
-        elif isinstance(config, dict):
-            self.config = dict_to_config(WhisperPluginConfig, config, validate=True)
-        else:
-            raise TypeError(f"Expected WhisperPluginConfig, dict, or None, got {type(config).__name__}")
+        """Initialize or re-configure the plugin (idempotent)."""
+        # Parse new config
+        new_config = dict_to_config(WhisperPluginConfig, config or {})
+        
+        # Check for changes if already running
+        if self.config:
+            # If the model selection changed, unload old model
+            if self.config.model != new_config.model:
+                self.logger.info(f"Config change: Model {self.config.model} -> {new_config.model}")
+                self._unload_model()
+            
+            # If device changed, unload
+            if self.config.device != new_config.device:
+                self.logger.info(f"Config change: Device {self.config.device} -> {new_config.device}")
+                self._unload_model()
+        
+        # Apply new config
+        self.config = new_config
         
         # Set device
         if self.config.device == "auto":
@@ -292,9 +298,17 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         
         self.logger.info(f"Initialized Whisper plugin with model '{self.config.model}' on device '{self.device}'")
     
-    def _load_model(
-        self
-    ) -> None:
+    def _unload_model(self) -> None:
+        """Unload the current model and free resources."""
+        if self.model is not None:
+            self.logger.info("Unloading Whisper model for reconfiguration")
+            self.model = None
+            
+            # Clear GPU cache if using CUDA
+            if self.device == "cuda" and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+    
+    def _load_model(self) -> None:
         """Load the Whisper model (lazy loading)."""
         if self.model is None:
             try:
@@ -316,8 +330,8 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     
     def _prepare_audio(
         self,
-        audio: Union[AudioData, str, Path]  # Audio data, file path, or Path object to prepare
-    ) -> str:  # Path to the prepared audio file
+        audio: Union[AudioData, str, Path] # Audio data, file path, or Path object to prepare
+    ) -> str: # Path to the prepared audio file
         """Prepare audio for Whisper processing."""
         if isinstance(audio, (str, Path)):
             # Already a file path
@@ -347,18 +361,27 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         else:
             raise ValueError(f"Unsupported audio input type: {type(audio)}")
     
+    def _save_to_db(
+        self,
+        result: TranscriptionResult # Transcription result to save
+    ) -> None:
+        """Save transcription result to database (placeholder)."""
+        # Placeholder for DB logic
+        # Implementation will use self.db_path which can be injected via config or environment
+        pass
+    
     def execute(
         self,
-        audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
-        **kwargs  # Additional arguments to override config
-    ) -> TranscriptionResult:  # Transcription result with text and metadata
+        audio: Union[AudioData, str, Path], # Audio data or path to audio file to transcribe
+        **kwargs # Additional arguments to override config
+    ) -> TranscriptionResult: # Transcription result with text and metadata
         """Transcribe audio using Whisper."""
         # Load model if not already loaded
         self._load_model()
         
-        # Prepare audio file
+        # Prepare audio file (handles Zero-Copy handoff from Proxy)
         audio_path = self._prepare_audio(audio)
-        temp_file_created = not isinstance(audio, (str, Path))
+        temp_file_created = (audio_path != str(audio)) and not isinstance(audio, (str, Path))
         
         try:
             # Get config values, allowing kwargs overrides
@@ -463,6 +486,9 @@ class WhisperLocalPlugin(TranscriptionPlugin):
                 }
             )
             
+            # Save to database (placeholder)
+            self._save_to_db(transcription_result)
+            
             self.logger.info(f"Transcription completed: {len(result['text'].split())} words")
             return transcription_result
             
@@ -470,19 +496,15 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             # Clean up temporary file if created
             if temp_file_created:
                 try:
-                    Path(audio_path).unlink()
+                    Path(audio_path).unlink(missing_ok=True)
                 except Exception:
                     pass
     
-    def is_available(
-        self
-    ) -> bool:  # True if Whisper and its dependencies are available
+    def is_available(self) -> bool: # True if Whisper and its dependencies are available
         """Check if Whisper is available."""
         return WHISPER_AVAILABLE
     
-    def cleanup(
-        self
-    ) -> None:
+    def cleanup(self) -> None:
         """Clean up resources."""
         if self.model is not None:
             self.logger.info("Unloading Whisper model")

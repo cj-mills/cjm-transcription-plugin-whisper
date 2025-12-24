@@ -12,14 +12,16 @@ pip install cjm_transcription_plugin_whisper
 ## Project Structure
 
     nbs/
+    ├── meta.ipynb   # Metadata introspection for the Whisper plugin used by cjm-ctl to generate the registration manifest.
     └── plugin.ipynb # Plugin implementation for OpenAI Whisper transcription
 
-Total: 1 notebook across 1 directory
+Total: 2 notebooks across 1 directory
 
 ## Module Dependencies
 
 ``` mermaid
 graph LR
+    meta[meta<br/>Metadata]
     plugin[plugin<br/>Whisper Plugin]
 ```
 
@@ -32,6 +34,38 @@ No CLI commands found in this project.
 ## Module Overview
 
 Detailed documentation for each module in the project:
+
+### Metadata (`meta.ipynb`)
+
+> Metadata introspection for the Whisper plugin used by cjm-ctl to
+> generate the registration manifest.
+
+#### Import
+
+``` python
+from cjm_transcription_plugin_whisper.meta import (
+    get_plugin_metadata
+)
+```
+
+#### Functions
+
+``` python
+def get_plugin_metadata() -> Dict[str, Any]: # Plugin metadata for manifest generation
+    """Return metadata required to register this plugin with the PluginManager."""
+    # Calculate default DB path relative to the environment
+    # e.g., /opt/conda/envs/cjm-whisper/data/history.db
+    base_path = os.path.dirname(os.path.dirname(sys.executable))
+    data_dir = os.path.join(base_path, "data")
+    db_path = os.path.join(data_dir, "transcriptions.db")
+    
+    # Ensure data directory exists
+    os.makedirs(data_dir, exist_ok=True)
+
+    return {
+        "name": "cjm-transcription-plugin-whisper",
+    "Return metadata required to register this plugin with the PluginManager."
+```
 
 ### Whisper Plugin (`plugin.ipynb`)
 
@@ -92,25 +126,41 @@ class WhisperLocalPlugin:
             self.config: WhisperPluginConfig = None
         "Initialize the Whisper plugin with default configuration."
     
-    def name(
-            self
-        ) -> str:  # Plugin name identifier
+    def name(self) -> str: # Plugin name identifier
+            """Get the plugin name identifier."""
+            return "whisper_local"
+        
+        @property
+        def version(self) -> str: # Plugin version string
         "Get the plugin name identifier."
     
-    def version(
-            self
-        ) -> str:  # Plugin version string
+    def version(self) -> str: # Plugin version string
+            """Get the plugin version string."""
+            return "1.0.0"
+        
+        @property
+        def supported_formats(self) -> List[str]: # List of supported audio file formats
         "Get the plugin version string."
     
-    def supported_formats(
-            self
-        ) -> List[str]:  # List of supported audio file formats
+    def supported_formats(self) -> List[str]: # List of supported audio file formats
+            """Get the list of supported audio file formats."""
+            return ["wav", "mp3", "flac", "m4a", "ogg", "webm", "mp4", "avi", "mov"]
+    
+        def get_current_config(self) -> Dict[str, Any]: # Current configuration as dictionary
         "Get the list of supported audio file formats."
     
-    def get_current_config(
-            self
-        ) -> WhisperPluginConfig:  # Current configuration dataclass
-        "Return current configuration."
+    def get_current_config(self) -> Dict[str, Any]: # Current configuration as dictionary
+            """Return current configuration state."""
+            if not self.config
+        "Return current configuration state."
+    
+    def get_config_schema(self) -> Dict[str, Any]: # JSON Schema for configuration
+            """Return JSON Schema for UI generation."""
+            return dataclass_to_jsonschema(WhisperPluginConfig)
+    
+        @staticmethod
+        def get_config_dataclass() -> WhisperPluginConfig: # Configuration dataclass
+        "Return JSON Schema for UI generation."
     
     def get_config_dataclass() -> WhisperPluginConfig: # Configuration dataclass
             """Return dataclass describing the plugin's configuration options."""
@@ -118,30 +168,32 @@ class WhisperLocalPlugin:
         
         def initialize(
             self,
-            config: Optional[Any] = None  # Configuration dataclass, dict, or None
+            config: Optional[Any] = None # Configuration dataclass, dict, or None
         ) -> None
         "Return dataclass describing the plugin's configuration options."
     
     def initialize(
             self,
-            config: Optional[Any] = None  # Configuration dataclass, dict, or None
+            config: Optional[Any] = None # Configuration dataclass, dict, or None
         ) -> None
-        "Initialize the plugin with configuration."
+        "Initialize or re-configure the plugin (idempotent)."
     
     def execute(
             self,
-            audio: Union[AudioData, str, Path],  # Audio data or path to audio file to transcribe
-            **kwargs  # Additional arguments to override config
-        ) -> TranscriptionResult:  # Transcription result with text and metadata
+            audio: Union[AudioData, str, Path], # Audio data or path to audio file to transcribe
+            **kwargs # Additional arguments to override config
+        ) -> TranscriptionResult: # Transcription result with text and metadata
         "Transcribe audio using Whisper."
     
-    def is_available(
-            self
-        ) -> bool:  # True if Whisper and its dependencies are available
+    def is_available(self) -> bool: # True if Whisper and its dependencies are available
+            """Check if Whisper is available."""
+            return WHISPER_AVAILABLE
+        
+        def cleanup(self) -> None
         "Check if Whisper is available."
     
-    def cleanup(
-            self
-        ) -> None
+    def cleanup(self) -> None:
+            """Clean up resources."""
+            if self.model is not None
         "Clean up resources."
 ```
