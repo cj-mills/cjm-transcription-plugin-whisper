@@ -538,7 +538,7 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             original_path = str(audio)
             if hasattr(audio, 'to_temp_file'): original_path = "in_memory_data"
             
-            # Save to database (placeholder)
+            # Save to database
             self._save_to_db(transcription_result, original_path, **kwargs)
             
             self.logger.info(f"Transcription completed: {len(result['text'].split())} words")
