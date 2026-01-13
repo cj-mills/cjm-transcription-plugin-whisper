@@ -34,9 +34,9 @@ def get_plugin_metadata() -> Dict[str, Any]: # Plugin metadata for manifest gene
 
     # Model cache: use models_dir if configured
     if cjm_models_dir:
-        cache_home = os.path.join(cjm_models_dir, "whisper")
+        cache_home = os.path.join(cjm_models_dir, "")
     else:
-        cache_home = os.path.join(base_path, ".cache", "whisper")
+        cache_home = os.path.join(base_path, ".cache")
 
     return {
         "name": plugin_name,
