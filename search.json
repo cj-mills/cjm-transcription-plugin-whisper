@@ -1,0 +1,102 @@
+[
+  {
+    "objectID": "meta.html",
+    "href": "meta.html",
+    "title": "Metadata",
+    "section": "",
+    "text": "source",
+    "crumbs": [
+      "Metadata"
+    ]
+  },
+  {
+    "objectID": "meta.html#testing",
+    "href": "meta.html#testing",
+    "title": "Metadata",
+    "section": "Testing",
+    "text": "Testing\n\nimport json\n\nmetadata = get_plugin_metadata()\nprint(json.dumps(metadata, indent=2))\n\n{\n  \"name\": \"cjm-transcription-plugin-whisper\",\n  \"version\": \"0.0.14\",\n  \"type\": \"transcription\",\n  \"category\": \"transcription\",\n  \"interface\": \"cjm_transcription_plugin_system.plugin_interface.TranscriptionPlugin\",\n  \"module\": \"cjm_transcription_plugin_whisper.plugin\",\n  \"class\": \"WhisperLocalPlugin\",\n  \"python_path\": \"/opt/hostedtoolcache/Python/3.11.14/x64/bin/python\",\n  \"db_path\": \"/opt/hostedtoolcache/Python/3.11.14/x64/data/whisper_transcriptions.db\",\n  \"resources\": {\n    \"requires_gpu\": true,\n    \"min_gpu_vram_mb\": 4096,\n    \"recommended_gpu_vram_mb\": 8192,\n    \"min_system_ram_mb\": 8192\n  },\n  \"env_vars\": {\n    \"CUDA_VISIBLE_DEVICES\": \"0\",\n    \"OMP_NUM_THREADS\": \"4\",\n    \"XDG_CACHE_HOME\": \"/opt/hostedtoolcache/Python/3.11.14/x64/.cache\"\n  }\n}",
+    "crumbs": [
+      "Metadata"
+    ]
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "cjm-transcription-plugin-whisper",
+    "section": "",
+    "text": "pip install cjm_transcription_plugin_whisper",
+    "crumbs": [
+      "cjm-transcription-plugin-whisper"
+    ]
+  },
+  {
+    "objectID": "index.html#install",
+    "href": "index.html#install",
+    "title": "cjm-transcription-plugin-whisper",
+    "section": "",
+    "text": "pip install cjm_transcription_plugin_whisper",
+    "crumbs": [
+      "cjm-transcription-plugin-whisper"
+    ]
+  },
+  {
+    "objectID": "index.html#project-structure",
+    "href": "index.html#project-structure",
+    "title": "cjm-transcription-plugin-whisper",
+    "section": "Project Structure",
+    "text": "Project Structure\nnbs/\n├── meta.ipynb   # Metadata introspection for the Whisper plugin used by cjm-ctl to generate the registration manifest.\n└── plugin.ipynb # Plugin implementation for OpenAI Whisper transcription\nTotal: 2 notebooks across 1 directory",
+    "crumbs": [
+      "cjm-transcription-plugin-whisper"
+    ]
+  },
+  {
+    "objectID": "index.html#module-dependencies",
+    "href": "index.html#module-dependencies",
+    "title": "cjm-transcription-plugin-whisper",
+    "section": "Module Dependencies",
+    "text": "Module Dependencies\ngraph LR\n    meta[meta&lt;br/&gt;Metadata]\n    plugin[plugin&lt;br/&gt;Whisper Plugin]\n\n    plugin --&gt; meta\n1 cross-module dependencies detected",
+    "crumbs": [
+      "cjm-transcription-plugin-whisper"
+    ]
+  },
+  {
+    "objectID": "index.html#cli-reference",
+    "href": "index.html#cli-reference",
+    "title": "cjm-transcription-plugin-whisper",
+    "section": "CLI Reference",
+    "text": "CLI Reference\nNo CLI commands found in this project.",
+    "crumbs": [
+      "cjm-transcription-plugin-whisper"
+    ]
+  },
+  {
+    "objectID": "index.html#module-overview",
+    "href": "index.html#module-overview",
+    "title": "cjm-transcription-plugin-whisper",
+    "section": "Module Overview",
+    "text": "Module Overview\nDetailed documentation for each module in the project:\n\nMetadata (meta.ipynb)\n\nMetadata introspection for the Whisper plugin used by cjm-ctl to generate the registration manifest.\n\n\nImport\nfrom cjm_transcription_plugin_whisper.meta import (\n    get_plugin_metadata\n)\n\n\nFunctions\ndef get_plugin_metadata() -&gt; Dict[str, Any]: # Plugin metadata for manifest generation\n    \"\"\"Return metadata required to register this plugin with the PluginManager.\"\"\"\n    # Fallback base path (current behavior for backward compatibility)\n    base_path = os.path.dirname(os.path.dirname(sys.executable))\n\n    # Use CJM config if available, else fallback to env-relative paths\n    cjm_data_dir = os.environ.get(\"CJM_DATA_DIR\")\n    cjm_models_dir = os.environ.get(\"CJM_MODELS_DIR\")\n\n    # Plugin data directory\n    plugin_name = \"cjm-transcription-plugin-whisper\"\n    if cjm_data_dir\n    \"Return metadata required to register this plugin with the PluginManager.\"\n\n\n\nWhisper Plugin (plugin.ipynb)\n\nPlugin implementation for OpenAI Whisper transcription\n\n\nImport\nfrom cjm_transcription_plugin_whisper.plugin import (\n    WhisperPluginConfig,\n    WhisperLocalPlugin\n)\n\n\nClasses\n@dataclass\nclass WhisperPluginConfig:\n    \"Configuration for Whisper transcription plugin.\"\n    \n    model: str = field(...)\n    device: str = field(...)\n    language: Optional[str] = field(...)\n    task: str = field(...)\n    temperature: float = field(...)\n    temperature_increment_on_fallback: Optional[float] = field(...)\n    beam_size: int = field(...)\n    best_of: int = field(...)\n    patience: float = field(...)\n    length_penalty: Optional[float] = field(...)\n    suppress_tokens: str = field(...)\n    initial_prompt: Optional[str] = field(...)\n    condition_on_previous_text: bool = field(...)\n    fp16: bool = field(...)\n    compression_ratio_threshold: float = field(...)\n    logprob_threshold: float = field(...)\n    no_speech_threshold: float = field(...)\n    word_timestamps: bool = field(...)\n    prepend_punctuations: str = field(...)\n    append_punctuations: str = field(...)\n    threads: int = field(...)\n    model_dir: Optional[str] = field(...)\n    compile_model: bool = field(...)\nclass WhisperLocalPlugin:\n    def __init__(self):\n        \"\"\"Initialize the Whisper plugin with default configuration.\"\"\"\n        self.logger = logging.getLogger(f\"{__name__}.{type(self).__name__}\")\n        self.config: WhisperPluginConfig = None\n    \"OpenAI Whisper transcription plugin.\"\n    \n    def __init__(self):\n            \"\"\"Initialize the Whisper plugin with default configuration.\"\"\"\n            self.logger = logging.getLogger(f\"{__name__}.{type(self).__name__}\")\n            self.config: WhisperPluginConfig = None\n        \"Initialize the Whisper plugin with default configuration.\"\n    \n    def name(self) -&gt; str: # Plugin name identifier\n            \"\"\"Get the plugin name identifier.\"\"\"\n            return \"whisper_local\"\n        \n        @property\n        def version(self) -&gt; str: # Plugin version string\n        \"Get the plugin name identifier.\"\n    \n    def version(self) -&gt; str: # Plugin version string\n            \"\"\"Get the plugin version string.\"\"\"\n            return \"1.0.0\"\n        \n        @property\n        def supported_formats(self) -&gt; List[str]: # List of supported audio file formats\n        \"Get the plugin version string.\"\n    \n    def supported_formats(self) -&gt; List[str]: # List of supported audio file formats\n            \"\"\"Get the list of supported audio file formats.\"\"\"\n            return [\"wav\", \"mp3\", \"flac\", \"m4a\", \"ogg\", \"webm\", \"mp4\", \"avi\", \"mov\"]\n    \n        def get_current_config(self) -&gt; Dict[str, Any]: # Current configuration as dictionary\n        \"Get the list of supported audio file formats.\"\n    \n    def get_current_config(self) -&gt; Dict[str, Any]: # Current configuration as dictionary\n            \"\"\"Return current configuration state.\"\"\"\n            if not self.config\n        \"Return current configuration state.\"\n    \n    def get_config_schema(self) -&gt; Dict[str, Any]: # JSON Schema for configuration\n            \"\"\"Return JSON Schema for UI generation.\"\"\"\n            return dataclass_to_jsonschema(WhisperPluginConfig)\n    \n        @staticmethod\n        def get_config_dataclass() -&gt; WhisperPluginConfig: # Configuration dataclass\n        \"Return JSON Schema for UI generation.\"\n    \n    def get_config_dataclass() -&gt; WhisperPluginConfig: # Configuration dataclass\n            \"\"\"Return dataclass describing the plugin's configuration options.\"\"\"\n            return WhisperPluginConfig\n        \n        def initialize(\n            self,\n            config: Optional[Any] = None # Configuration dataclass, dict, or None\n        ) -&gt; None\n        \"Return dataclass describing the plugin's configuration options.\"\n    \n    def initialize(\n            self,\n            config: Optional[Any] = None # Configuration dataclass, dict, or None\n        ) -&gt; None\n        \"Initialize or re-configure the plugin (idempotent).\"\n    \n    def execute(\n            self,\n            audio: Union[AudioData, str, Path], # Audio data or path to audio file to transcribe\n            **kwargs # Additional arguments to override config\n        ) -&gt; TranscriptionResult: # Transcription result with text and metadata\n        \"Transcribe audio using Whisper.\"\n    \n    def is_available(self) -&gt; bool: # True if Whisper and its dependencies are available\n            \"\"\"Check if Whisper is available.\"\"\"\n            return WHISPER_AVAILABLE\n        \n        def cleanup(self) -&gt; None\n        \"Check if Whisper is available.\"\n    \n    def cleanup(self) -&gt; None:\n            \"\"\"Clean up resources.\"\"\"\n            if self.model is not None\n        \"Clean up resources.\"",
+    "crumbs": [
+      "cjm-transcription-plugin-whisper"
+    ]
+  },
+  {
+    "objectID": "plugin.html",
+    "href": "plugin.html",
+    "title": "Whisper Plugin",
+    "section": "",
+    "text": "source",
+    "crumbs": [
+      "Whisper Plugin"
+    ]
+  },
+  {
+    "objectID": "plugin.html#testing-the-plugin",
+    "href": "plugin.html#testing-the-plugin",
+    "title": "Whisper Plugin",
+    "section": "Testing the Plugin",
+    "text": "Testing the Plugin\n\n# Test basic functionality\nplugin = WhisperLocalPlugin()\n\n# Check availability\nprint(f\"Whisper available: {plugin.is_available()}\")\nprint(f\"Plugin name: {plugin.name}\")\nprint(f\"Plugin version: {plugin.version}\")\nprint(f\"Supported formats: {plugin.supported_formats}\")\nprint(f\"Config class: {plugin.config_class.__name__}\")\n\nWhisper available: True\nPlugin name: whisper_local\nPlugin version: 1.0.0\nSupported formats: ['wav', 'mp3', 'flac', 'm4a', 'ogg', 'webm', 'mp4', 'avi', 'mov']\nConfig class: WhisperPluginConfig\n\n\n\n# Test configuration dataclass\nfrom dataclasses import fields\n\nprint(\"Available models:\")\nmodel_field = next(f for f in fields(WhisperPluginConfig) if f.name == \"model\")\nfor model in model_field.metadata.get(SCHEMA_ENUM, []):\n    print(f\"  - {model}\")\n\nAvailable models:\n  - tiny\n  - tiny.en\n  - base\n  - base.en\n  - small\n  - small.en\n  - medium\n  - medium.en\n  - large\n  - large-v1\n  - large-v2\n  - large-v3\n\n\n\n# Test configuration validation\ntest_configs = [\n    ({\"model\": \"tiny\"}, \"Valid config\"),\n    ({\"model\": \"invalid\"}, \"Invalid model\"),\n    ({\"model\": \"tiny\", \"temperature\": 1.5}, \"Temperature out of range\"),\n]\n\nfor config, description in test_configs:\n    try:\n        test_cfg = dict_to_config(WhisperPluginConfig, config, validate=True)\n        print(f\"{description}: Valid=True\")\n    except ValueError as e:\n        print(f\"{description}: Valid=False\")\n        print(f\"  Error: {str(e)[:100]}\")\n\nValid config: Valid=True\nInvalid model: Valid=False\n  Error: model: 'invalid' is not one of ['tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.en', 'medium',\nTemperature out of range: Valid=False\n  Error: temperature: 1.5 is greater than maximum 1.0\n\n\n\n# Test initialization and get_current_config (returns dict now)\nplugin.initialize({\"model\": \"tiny\", \"device\": \"cpu\"})\ncurrent_config = plugin.get_current_config()\nprint(f\"Current config (dict): {current_config}\")\nprint(f\"Current model: {current_config['model']}\")\n\nCurrent config (dict): {'model': 'tiny', 'device': 'cpu', 'language': None, 'task': 'transcribe', 'temperature': 0.0, 'temperature_increment_on_fallback': 0.2, 'beam_size': 5, 'best_of': 5, 'patience': 1.0, 'length_penalty': None, 'suppress_tokens': '-1', 'initial_prompt': None, 'condition_on_previous_text': False, 'fp16': True, 'compression_ratio_threshold': 2.4, 'logprob_threshold': -1.0, 'no_speech_threshold': 0.6, 'word_timestamps': False, 'prepend_punctuations': '\"\\'“¿([{-', 'append_punctuations': '\"\\'.。,，!！?？:：”)]}、', 'threads': 0, 'model_dir': None, 'compile_model': False}\nCurrent model: tiny\n\n\n\n# Test get_config_schema for UI generation\nimport json\n\nschema = plugin.get_config_schema()\nprint(\"JSON Schema for WhisperPluginConfig:\")\nprint(f\"  Name: {schema['name']}\")\nprint(f\"  Properties count: {len(schema['properties'])}\")\nprint(f\"  Model field enum: {schema['properties']['model'].get('enum', [])[:3]}...\")\nprint(f\"\\nFull schema (truncated):\")\nprint(json.dumps({k: v for k, v in list(schema['properties'].items())[:3]}, indent=2))\n\nJSON Schema for WhisperPluginConfig:\n  Name: WhisperPluginConfig\n  Properties count: 23\n  Model field enum: ['tiny', 'tiny.en', 'base']...\n\nFull schema (truncated):\n{\n  \"model\": {\n    \"type\": \"string\",\n    \"title\": \"Model\",\n    \"description\": \"Whisper model size. Larger models are more accurate but slower.\",\n    \"enum\": [\n      \"tiny\",\n      \"tiny.en\",\n      \"base\",\n      \"base.en\",\n      \"small\",\n      \"small.en\",\n      \"medium\",\n      \"medium.en\",\n      \"large\",\n      \"large-v1\",\n      \"large-v2\",\n      \"large-v3\"\n    ],\n    \"default\": \"base\"\n  },\n  \"device\": {\n    \"type\": \"string\",\n    \"title\": \"Device\",\n    \"description\": \"Device for inference (auto will use CUDA if available)\",\n    \"enum\": [\n      \"auto\",\n      \"cpu\",\n      \"cuda\"\n    ],\n    \"default\": \"auto\"\n  },\n  \"language\": {\n    \"type\": [\n      \"string\",\n      \"null\"\n    ],\n    \"title\": \"Language\",\n    \"description\": \"Language code (e.g., 'en', 'es', 'fr') or None for auto-detection\",\n    \"default\": null\n  }\n}\n\n\n\n# Test idempotent initialize - model unload on config change\nimport logging\n\n# Enable logging to see model unload messages\nlogging.basicConfig(level=logging.INFO)\n\n# Initialize with one model\nplugin.initialize({\"model\": \"tiny\", \"device\": \"cpu\"})\nprint(f\"Initial config: model={plugin.config.model}\")\n\n# Re-initialize with same model (no unload should happen)\nprint(\"\\nRe-initializing with same model...\")\nplugin.initialize({\"model\": \"tiny\", \"device\": \"cpu\"})\n\n# Re-initialize with different model (unload should trigger)\nprint(\"\\nRe-initializing with different model...\")\nplugin.initialize({\"model\": \"base\", \"device\": \"cpu\"})\nprint(f\"New config: model={plugin.config.model}\")\n\nINFO:__main__.WhisperLocalPlugin:Initialized Whisper plugin with model 'tiny' on device 'cpu'\nINFO:__main__.WhisperLocalPlugin:Initialized Whisper plugin with model 'tiny' on device 'cpu'\nINFO:__main__.WhisperLocalPlugin:Config change: Model tiny -&gt; base\nINFO:__main__.WhisperLocalPlugin:Initialized Whisper plugin with model 'base' on device 'cpu'\n\n\nInitial config: model=tiny\n\nRe-initializing with same model...\n\nRe-initializing with different model...\nNew config: model=base",
+    "crumbs": [
+      "Whisper Plugin"
+    ]
+  }
+]
