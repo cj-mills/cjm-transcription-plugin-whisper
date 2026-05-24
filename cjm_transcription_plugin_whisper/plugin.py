@@ -37,6 +37,9 @@ from cjm_transcription_plugin_system.plugin_interface import TranscriptionPlugin
 from cjm_transcription_plugin_system.core import AudioData, TranscriptionResult
 from cjm_transcription_plugin_system.storage import TranscriptionStorage
 from cjm_plugin_system.utils.hashing import hash_file, hash_bytes
+from cjm_plugin_system.core.errors import (
+    PluginInputError, PluginFatalError, PluginResourceError, ResourceShortfall,
+)
 from cjm_plugin_system.utils.validation import (
     dict_to_config, config_to_dict, validate_config, dataclass_to_jsonschema,
     SCHEMA_TITLE, SCHEMA_DESC, SCHEMA_MIN, SCHEMA_MAX, SCHEMA_ENUM
@@ -341,8 +344,25 @@ class WhisperLocalPlugin(TranscriptionPlugin):
                     self.logger.info("Model compiled with torch.compile")
                     
                 self.logger.info("Local Whisper model loaded successfully")
+            except torch.cuda.OutOfMemoryError as e:
+                # SG-47 Track B: CUDA OOM during model load is a resource error;
+                # substrate's CR-7 reactive-retry will reload + retry after evicting
+                # other plugins. ResourceShortfall carries observable numbers for
+                # operator visibility + future capacity hints.
+                free_bytes = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
+                available_mb = free_bytes / (1024 ** 2)
+                raise PluginResourceError(
+                    f"CUDA OOM loading Whisper model {self.config.model!r}: {e}",
+                    resource_shortfall=ResourceShortfall(
+                        resource='gpu_vram_mb',
+                        needed=available_mb + 100.0,  # Best-effort: > available
+                        available=available_mb,
+                    ),
+                ) from e
             except Exception as e:
-                raise RuntimeError(f"Failed to load Whisper model: {e}")
+                # SG-47: non-resource load failures (missing model, corrupt download,
+                # device misconfiguration) — fatal; author/config attention needed.
+                raise PluginFatalError(f"Failed to load Whisper model: {e}") from e
     
     def _prepare_audio(
         self,
@@ -375,7 +395,10 @@ class WhisperLocalPlugin(TranscriptionPlugin):
                 sf.write(tmp_file.name, audio_array, audio.sample_rate)
                 return tmp_file.name
         else:
-            raise ValueError(f"Unsupported audio input type: {type(audio)}")
+            raise PluginInputError(  # SG-47: typed input-validation (multi-inherits ValueError)
+                f"Unsupported audio input type: {type(audio)}",
+                fields_invalid=["audio"],
+            )
     
     def execute(
         self,
@@ -450,14 +473,29 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             # Perform transcription
             self.logger.info(f"Transcribing audio with Whisper {model_name}")
             
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # Suppress Whisper warnings
-                result = transcribe(
-                    self.model,
-                    audio_path,
-                    temperature=temperature,
-                    **whisper_args
-                )
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")  # Suppress Whisper warnings
+                    result = transcribe(
+                        self.model,
+                        audio_path,
+                        temperature=temperature,
+                        **whisper_args
+                    )
+            except torch.cuda.OutOfMemoryError as e:
+                # SG-47 Track B: CUDA OOM during Whisper inference. Substrate's
+                # CR-7 reactive-retry path reloads + retries; ResourceShortfall
+                # surfaces actual numbers for operator visibility.
+                free_bytes = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
+                available_mb = free_bytes / (1024 ** 2)
+                raise PluginResourceError(
+                    f"CUDA OOM during Whisper inference (model={model_name!r}): {e}",
+                    resource_shortfall=ResourceShortfall(
+                        resource='gpu_vram_mb',
+                        needed=available_mb + 100.0,
+                        available=available_mb,
+                    ),
+                ) from e
             
             # Process segments
             segments = []
