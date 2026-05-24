@@ -37,6 +37,7 @@ from cjm_transcription_plugin_system.plugin_interface import TranscriptionPlugin
 from cjm_transcription_plugin_system.core import AudioData, TranscriptionResult
 from cjm_transcription_plugin_system.storage import TranscriptionStorage
 from cjm_plugin_system.utils.hashing import hash_file, hash_bytes
+from cjm_plugin_system.core.interface import RELOAD_TRIGGER
 from cjm_plugin_system.core.errors import (
     PluginInputError, PluginFatalError, PluginResourceError, ResourceShortfall,
 )
@@ -59,7 +60,8 @@ class WhisperPluginConfig:
             SCHEMA_TITLE: "Model",
             SCHEMA_DESC: "Whisper model size. Larger models are more accurate but slower.",
             SCHEMA_ENUM: ["tiny", "tiny.en", "base", "base.en", "small", "small.en", 
-                        "medium", "medium.en", "large", "large-v1", "large-v2", "large-v3"]
+                        "medium", "medium.en", "large", "large-v1", "large-v2", "large-v3"],
+            RELOAD_TRIGGER: "model",  # CR-4: model swap requires reload
         }
     )
     device:str = field(
@@ -67,7 +69,8 @@ class WhisperPluginConfig:
         metadata={
             SCHEMA_TITLE: "Device",
             SCHEMA_DESC: "Device for inference (auto will use CUDA if available)",
-            SCHEMA_ENUM: ["auto", "cpu", "cuda"]
+            SCHEMA_ENUM: ["auto", "cpu", "cuda"],
+            RELOAD_TRIGGER: "model",  # CR-4: device change requires model reload
         }
     )
     language:Optional[str] = field(
@@ -223,6 +226,7 @@ class WhisperPluginConfig:
         default=None,
         metadata={
             SCHEMA_TITLE: "Model Directory",
+            RELOAD_TRIGGER: "model",  # CR-4: changing model directory may require redownload + reload
             SCHEMA_DESC: "Directory to save/load models"
         }
     )
@@ -230,6 +234,7 @@ class WhisperPluginConfig:
         default=False,
         metadata={
             SCHEMA_TITLE: "Compile Model",
+            RELOAD_TRIGGER: "model",  # CR-4: torch.compile is one-shot; reload to apply
             SCHEMA_DESC: "Use torch.compile for potential speedup (requires PyTorch 2.0+)"
         }
     )
@@ -237,7 +242,10 @@ class WhisperPluginConfig:
 # %% ../nbs/plugin.ipynb #12e9f5c3
 class WhisperLocalPlugin(TranscriptionPlugin):
     """OpenAI Whisper transcription plugin."""
-    
+
+    # CR-4: declarative reload-triggers — substrate's reconfigure_with_triggers
+    # walks this config_class's dataclass fields for RELOAD_TRIGGER metadata and
+    # fires the corresponding `_release_<trigger>` method on field changes.
     config_class = WhisperPluginConfig
     
     def __init__(self):
@@ -292,12 +300,12 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             # If the model selection changed, unload old model
             if self.config.model != new_config.model:
                 self.logger.info(f"Config change: Model {self.config.model} -> {new_config.model}")
-                self._unload_model()
+                self._release_model()
             
             # If device changed, unload
             if self.config.device != new_config.device:
                 self.logger.info(f"Config change: Device {self.config.device} -> {new_config.device}")
-                self._unload_model()
+                self._release_model()
         
         # Apply new config
         self.config = new_config
@@ -317,7 +325,7 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         
         self.logger.info(f"Initialized Whisper plugin with model '{self.config.model}' on device '{self.device}'")
     
-    def _unload_model(self) -> None:
+    def _release_model(self) -> None:
         """Unload the current model and free resources."""
         if self.model is not None:
             self.logger.info("Unloading Whisper model for reconfiguration")
