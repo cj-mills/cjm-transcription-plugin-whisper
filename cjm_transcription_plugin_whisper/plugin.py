@@ -17,12 +17,10 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
 from typing import Dict, Any, Optional, List, Union
-import tempfile
 import warnings
 
 import numpy as np
 import torch
-import soundfile as sf
 
 try:
     import whisper
@@ -34,7 +32,7 @@ except ImportError:
     WHISPER_AVAILABLE = False
     
 from cjm_transcription_plugin_system.plugin_interface import TranscriptionPlugin
-from cjm_transcription_plugin_system.core import AudioData, TranscriptionResult
+from cjm_transcription_plugin_system.core import TranscriptionResult
 from cjm_transcription_plugin_system.storage import TranscriptionStorage
 from cjm_plugin_system.utils.hashing import hash_file, hash_bytes
 from cjm_plugin_system.core.interface import RELOAD_TRIGGER
@@ -374,215 +372,179 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     
     def _prepare_audio(
         self,
-        audio: Union[AudioData, str, Path] # Audio data, file path, or Path object to prepare
-    ) -> str: # Path to the prepared audio file
-        """Prepare audio for Whisper processing."""
+        audio: Union[str, Path] # Path to a decodable audio file
+    ) -> str: # The audio file path
+        """Validate the audio input and return it as a path string.
+
+        The caller (orchestration / proxy) guarantees a model-ready audio file;
+        in-memory preparation is no longer a plugin responsibility."""
         if isinstance(audio, (str, Path)):
-            # Already a file path
             return str(audio)
-        
-        elif isinstance(audio, AudioData):
-            # Save AudioData to temporary file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-                # Ensure audio is in the correct format
-                audio_array = audio.samples
-                
-                # If stereo, convert to mono
-                if audio_array.ndim > 1:
-                    audio_array = audio_array.mean(axis=1)
-                
-                # Ensure float32 and normalized
-                if audio_array.dtype != np.float32:
-                    audio_array = audio_array.astype(np.float32)
-                
-                # Normalize if needed
-                if audio_array.max() > 1.0:
-                    audio_array = audio_array / np.abs(audio_array).max()
-                
-                # Save to file
-                sf.write(tmp_file.name, audio_array, audio.sample_rate)
-                return tmp_file.name
-        else:
-            raise PluginInputError(  # SG-47: typed input-validation (multi-inherits ValueError)
-                f"Unsupported audio input type: {type(audio)}",
-                fields_invalid=["audio"],
-            )
+        raise PluginInputError(  # SG-47: typed input-validation (multi-inherits ValueError)
+            f"Unsupported audio input type: {type(audio)}; expected a file path (str or Path)",
+            fields_invalid=["audio"],
+        )
     
     def execute(
         self,
-        audio: Union[AudioData, str, Path], # Audio data or path to audio file to transcribe
+        audio: Union[str, Path], # Path to the audio file to transcribe
         **kwargs # Additional arguments to override config
     ) -> TranscriptionResult: # Transcription result with text and metadata
-        """Transcribe audio using Whisper."""
+        """Transcribe audio using Whisper.
+
+        `audio` is a path to a decodable audio file; the caller guarantees it is
+        model-ready (format / sample-rate / channels handled upstream)."""
         # Load model if not already loaded
         self._load_model()
         
-        # Prepare audio file (handles Zero-Copy handoff from Proxy)
+        # Validate + resolve the input path
         audio_path = self._prepare_audio(audio)
-        temp_file_created = (audio_path != str(audio)) and not isinstance(audio, (str, Path))
         
         # Hash the audio file before transcription
         audio_hash = hash_file(audio_path)
         
+        # Get config values, allowing kwargs overrides
+        model_name = kwargs.get("model", self.config.model)
+        task = kwargs.get("task", self.config.task)
+        language = kwargs.get("language", self.config.language)
+        beam_size = kwargs.get("beam_size", self.config.beam_size)
+        best_of = kwargs.get("best_of", self.config.best_of)
+        patience = kwargs.get("patience", self.config.patience)
+        length_penalty = kwargs.get("length_penalty", self.config.length_penalty)
+        suppress_tokens = kwargs.get("suppress_tokens", self.config.suppress_tokens)
+        initial_prompt = kwargs.get("initial_prompt", self.config.initial_prompt)
+        condition_on_previous_text = kwargs.get("condition_on_previous_text", self.config.condition_on_previous_text)
+        fp16 = kwargs.get("fp16", self.config.fp16)
+        compression_ratio_threshold = kwargs.get("compression_ratio_threshold", self.config.compression_ratio_threshold)
+        logprob_threshold = kwargs.get("logprob_threshold", self.config.logprob_threshold)
+        no_speech_threshold = kwargs.get("no_speech_threshold", self.config.no_speech_threshold)
+        word_timestamps = kwargs.get("word_timestamps", self.config.word_timestamps)
+        prepend_punctuations = kwargs.get("prepend_punctuations", self.config.prepend_punctuations)
+        append_punctuations = kwargs.get("append_punctuations", self.config.append_punctuations)
+        temperature = kwargs.get("temperature", self.config.temperature)
+        temp_increment = kwargs.get("temperature_increment_on_fallback", self.config.temperature_increment_on_fallback)
+        threads = kwargs.get("threads", self.config.threads)
+        
+        # Prepare Whisper arguments
+        whisper_args = {
+            "verbose": False,
+            "task": task,
+            "language": language,
+            "beam_size": beam_size,
+            "best_of": best_of,
+            "patience": patience,
+            "length_penalty": length_penalty,
+            "suppress_tokens": suppress_tokens,
+            "initial_prompt": initial_prompt,
+            "condition_on_previous_text": condition_on_previous_text,
+            "fp16": fp16 and self.device == "cuda",
+            "compression_ratio_threshold": compression_ratio_threshold,
+            "logprob_threshold": logprob_threshold,
+            "no_speech_threshold": no_speech_threshold,
+            "word_timestamps": word_timestamps,
+            "prepend_punctuations": prepend_punctuations,
+            "append_punctuations": append_punctuations,
+        }
+        
+        # Handle temperature settings
+        if temp_increment is not None and temp_increment > 0:
+            temperature = tuple(np.arange(temperature, 1.0 + 1e-6, temp_increment))
+        else:
+            temperature = [temperature]
+        
+        # Set number of threads if specified
+        if threads > 0:
+            torch.set_num_threads(threads)
+        
+        # Perform transcription
+        self.logger.info(f"Transcribing audio with Whisper {model_name}")
+        
         try:
-            # Get config values, allowing kwargs overrides
-            model_name = kwargs.get("model", self.config.model)
-            task = kwargs.get("task", self.config.task)
-            language = kwargs.get("language", self.config.language)
-            beam_size = kwargs.get("beam_size", self.config.beam_size)
-            best_of = kwargs.get("best_of", self.config.best_of)
-            patience = kwargs.get("patience", self.config.patience)
-            length_penalty = kwargs.get("length_penalty", self.config.length_penalty)
-            suppress_tokens = kwargs.get("suppress_tokens", self.config.suppress_tokens)
-            initial_prompt = kwargs.get("initial_prompt", self.config.initial_prompt)
-            condition_on_previous_text = kwargs.get("condition_on_previous_text", self.config.condition_on_previous_text)
-            fp16 = kwargs.get("fp16", self.config.fp16)
-            compression_ratio_threshold = kwargs.get("compression_ratio_threshold", self.config.compression_ratio_threshold)
-            logprob_threshold = kwargs.get("logprob_threshold", self.config.logprob_threshold)
-            no_speech_threshold = kwargs.get("no_speech_threshold", self.config.no_speech_threshold)
-            word_timestamps = kwargs.get("word_timestamps", self.config.word_timestamps)
-            prepend_punctuations = kwargs.get("prepend_punctuations", self.config.prepend_punctuations)
-            append_punctuations = kwargs.get("append_punctuations", self.config.append_punctuations)
-            temperature = kwargs.get("temperature", self.config.temperature)
-            temp_increment = kwargs.get("temperature_increment_on_fallback", self.config.temperature_increment_on_fallback)
-            threads = kwargs.get("threads", self.config.threads)
-            
-            # Prepare Whisper arguments
-            whisper_args = {
-                "verbose": False,
-                "task": task,
-                "language": language,
-                "beam_size": beam_size,
-                "best_of": best_of,
-                "patience": patience,
-                "length_penalty": length_penalty,
-                "suppress_tokens": suppress_tokens,
-                "initial_prompt": initial_prompt,
-                "condition_on_previous_text": condition_on_previous_text,
-                "fp16": fp16 and self.device == "cuda",
-                "compression_ratio_threshold": compression_ratio_threshold,
-                "logprob_threshold": logprob_threshold,
-                "no_speech_threshold": no_speech_threshold,
-                "word_timestamps": word_timestamps,
-                "prepend_punctuations": prepend_punctuations,
-                "append_punctuations": append_punctuations,
-            }
-            
-            # Handle temperature settings
-            if temp_increment is not None and temp_increment > 0:
-                temperature = tuple(np.arange(temperature, 1.0 + 1e-6, temp_increment))
-            else:
-                temperature = [temperature]
-            
-            # Set number of threads if specified
-            if threads > 0:
-                torch.set_num_threads(threads)
-            
-            # Perform transcription
-            self.logger.info(f"Transcribing audio with Whisper {model_name}")
-            
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")  # Suppress Whisper warnings
-                    result = transcribe(
-                        self.model,
-                        audio_path,
-                        temperature=temperature,
-                        **whisper_args
-                    )
-            except torch.cuda.OutOfMemoryError as e:
-                # SG-47 Track B: CUDA OOM during Whisper inference. Substrate's
-                # CR-7 reactive-retry path reloads + retries; ResourceShortfall
-                # surfaces actual numbers for operator visibility.
-                free_bytes = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
-                available_mb = free_bytes / (1024 ** 2)
-                raise PluginResourceError(
-                    f"CUDA OOM during Whisper inference (model={model_name!r}): {e}",
-                    resource_shortfall=ResourceShortfall(
-                        resource='gpu_vram_mb',
-                        needed=available_mb + 100.0,
-                        available=available_mb,
-                    ),
-                ) from e
-            
-            # Process segments
-            segments = []
-            for segment in result.get("segments", []):
-                segment_data = {
-                    "start": segment["start"],
-                    "end": segment["end"],
-                    "text": segment["text"].strip()
-                }
-                
-                # Add word timestamps if available
-                if "words" in segment and word_timestamps:
-                    segment_data["words"] = [
-                        {
-                            "word": word["word"],
-                            "start": word["start"],
-                            "end": word["end"],
-                            "probability": word.get("probability")
-                        }
-                        for word in segment["words"]
-                    ]
-                
-                segments.append(segment_data)
-
-            # Capture provenance metadata passed via kwargs
-            provenance_meta = {
-                k: v for k, v in kwargs.items() 
-                if k in ['source_start_time', 'source_end_time']
-            }
-            
-            # Create transcription result
-            transcription_result = TranscriptionResult(
-                text=result["text"].strip(),
-                confidence=None,  # Whisper doesn't provide overall confidence
-                segments=segments if segments else None,
-                metadata={
-                    "model": model_name,
-                    **provenance_meta,
-                    "language": result.get("language", language),
-                    "task": task,
-                    "device": self.device,
-                    "duration": result.get("duration"),
-                }
-            )
-
-            # Hash the transcription output
-            text_hash = hash_bytes(transcription_result.text.encode())
-
-            # Determine the original audio path for DB storage
-            original_path = str(audio)
-            if hasattr(audio, 'to_temp_file'):
-                original_path = "in_memory_data"
-
-            # Save to standardized storage
-            job_id = kwargs.get("job_id", str(uuid4()))
-            try:
-                self.storage.save(
-                    job_id=job_id,
-                    audio_path=original_path,
-                    audio_hash=audio_hash,
-                    text=transcription_result.text,
-                    text_hash=text_hash,
-                    segments=transcription_result.segments,
-                    metadata=transcription_result.metadata
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")  # Suppress Whisper warnings
+                result = transcribe(
+                    self.model,
+                    audio_path,
+                    temperature=temperature,
+                    **whisper_args
                 )
-                self.logger.info(f"Saved result to DB (Job: {job_id})")
-            except Exception as e:
-                self.logger.error(f"Failed to save to DB: {e}")
+        except torch.cuda.OutOfMemoryError as e:
+            # SG-47 Track B: CUDA OOM during Whisper inference. Substrate's
+            # CR-7 reactive-retry path reloads + retries; ResourceShortfall
+            # surfaces actual numbers for operator visibility.
+            free_bytes = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
+            available_mb = free_bytes / (1024 ** 2)
+            raise PluginResourceError(
+                f"CUDA OOM during Whisper inference (model={model_name!r}): {e}",
+                resource_shortfall=ResourceShortfall(
+                    resource='gpu_vram_mb',
+                    needed=available_mb + 100.0,
+                    available=available_mb,
+                ),
+            ) from e
+        
+        # Process segments
+        segments = []
+        for segment in result.get("segments", []):
+            segment_data = {
+                "start": segment["start"],
+                "end": segment["end"],
+                "text": segment["text"].strip()
+            }
             
-            self.logger.info(f"Transcription completed: {len(result['text'].split())} words")
-            return transcription_result
+            # Add word timestamps if available
+            if "words" in segment and word_timestamps:
+                segment_data["words"] = [
+                    {
+                        "word": word["word"],
+                        "start": word["start"],
+                        "end": word["end"],
+                        "probability": word.get("probability")
+                    }
+                    for word in segment["words"]
+                ]
             
-        finally:
-            # Clean up temporary file if created
-            if temp_file_created:
-                try:
-                    Path(audio_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+            segments.append(segment_data)
+
+        # Capture provenance metadata passed via kwargs
+        provenance_meta = {
+            k: v for k, v in kwargs.items() 
+            if k in ['source_start_time', 'source_end_time']
+        }
+        
+        # Create transcription result
+        transcription_result = TranscriptionResult(
+            text=result["text"].strip(),
+            confidence=None,  # Whisper doesn't provide overall confidence
+            segments=segments if segments else None,
+            metadata={
+                "model": model_name,
+                **provenance_meta,
+                "language": result.get("language", language),
+                "task": task,
+                "device": self.device,
+                "duration": result.get("duration"),
+            }
+        )
+
+        # Hash the transcription output
+        text_hash = hash_bytes(transcription_result.text.encode())
+
+        # Save to standardized storage (helper logs success/failure; never raises)
+        job_id = kwargs.get("job_id", str(uuid4()))
+        self.storage.save_with_logging(
+            job_id=job_id,
+            audio_path=str(audio),
+            audio_hash=audio_hash,
+            text=transcription_result.text,
+            text_hash=text_hash,
+            segments=transcription_result.segments,
+            metadata=transcription_result.metadata,
+            logger=self.logger,
+        )
+        
+        self.logger.info(f"Transcription completed: {len(result['text'].split())} words")
+        return transcription_result
     
     def is_available(self) -> bool: # True if Whisper and its dependencies are available
         """Check if Whisper is available."""
