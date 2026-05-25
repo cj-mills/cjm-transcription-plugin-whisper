@@ -181,10 +181,13 @@ class WhisperLocalPlugin:
     
     def execute(
             self,
-            audio: Union[AudioData, str, Path], # Audio data or path to audio file to transcribe
+            audio: Union[str, Path], # Path to the audio file to transcribe
             **kwargs # Additional arguments to override config
         ) -> TranscriptionResult: # Transcription result with text and metadata
-        "Transcribe audio using Whisper."
+        "Transcribe audio using Whisper.
+
+`audio` is a path to a decodable audio file; the caller guarantees it is
+model-ready (format / sample-rate / channels handled upstream)."
     
     def is_available(self) -> bool: # True if Whisper and its dependencies are available
             """Check if Whisper is available."""
