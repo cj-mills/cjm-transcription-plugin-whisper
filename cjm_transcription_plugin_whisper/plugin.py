@@ -285,39 +285,36 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         """Return dataclass describing the plugin's configuration options."""
         return WhisperPluginConfig
     
-    def initialize(
+    def _apply_config(
         self,
         config: Optional[Any] = None # Configuration dataclass, dict, or None
     ) -> None:
-        """Initialize or re-configure the plugin (idempotent)."""
-        # Parse new config
-        new_config = dict_to_config(WhisperPluginConfig, config or {})
+        """CR-4: apply config values + derive config-dependent state (device,
+        model_dir). No heavy-resource work. Called by initialize (first-time) and by
+        the substrate's reconfigure delta path. Model release on a model/device/
+        model_dir/compile_model change is handled declaratively via RELOAD_TRIGGER
+        -> _release_model (fired by the substrate BEFORE this re-applies config)."""
+        self.config = dict_to_config(WhisperPluginConfig, config or {})
         
-        # Check for changes if already running
-        if self.config:
-            # If the model selection changed, unload old model
-            if self.config.model != new_config.model:
-                self.logger.info(f"Config change: Model {self.config.model} -> {new_config.model}")
-                self._release_model()
-            
-            # If device changed, unload
-            if self.config.device != new_config.device:
-                self.logger.info(f"Config change: Device {self.config.device} -> {new_config.device}")
-                self._release_model()
-        
-        # Apply new config
-        self.config = new_config
-        
-        # Set device
+        # Resolve device
         if self.config.device == "auto":
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = self.config.device
         
-        # Set model directory
+        # Resolve model directory
         self.model_dir = self.config.model_dir
+
+    def initialize(
+        self,
+        config: Optional[Any] = None # Configuration dataclass, dict, or None
+    ) -> None:
+        """First-time setup. CR-4: the manual model/device diff-and-reload is replaced
+        by declarative RELOAD_TRIGGER metadata; the substrate's reconfigure path fires
+        _release_model then re-applies config via _apply_config."""
+        self._apply_config(config)
         
-        # Initialize standardized storage
+        # Initialize standardized storage (one-time)
         db_path = get_plugin_metadata()["db_path"]
         self.storage = TranscriptionStorage(db_path)
         
@@ -550,14 +547,17 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         """Check if Whisper is available."""
         return WHISPER_AVAILABLE
     
+    def prefetch(self) -> None:
+        """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
+        the download/load cost. Idempotent via _load_model's None-guard."""
+        self._load_model()
+
+    def on_disable(self) -> None:
+        """CR-2: release the GPU model when the operator disables the plugin (the
+        worker stays alive); lazy reload on the next execute after re-enable."""
+        self._release_model()
+
     def cleanup(self) -> None:
-        """Clean up resources."""
-        if self.model is not None:
-            self.logger.info("Unloading Whisper model")
-            self.model = None
-            
-            # Clear GPU cache if using CUDA
-            if self.device == "cuda" and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                
-            self.logger.info("Cleanup completed")
+        """Release resources on unload."""
+        self._release_model()
+        self.logger.info("Cleanup completed")
