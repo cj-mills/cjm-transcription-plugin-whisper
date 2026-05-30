@@ -15,8 +15,7 @@ from uuid import uuid4
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
-from dataclasses import replace as dataclass_replace
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, ClassVar
 import warnings
 
 import numpy as np
@@ -35,9 +34,9 @@ from cjm_transcription_plugin_system.plugin_interface import TranscriptionPlugin
 from cjm_transcription_plugin_system.core import TranscriptionResult
 from cjm_transcription_plugin_system.storage import TranscriptionStorage
 from cjm_plugin_system.utils.hashing import hash_file, hash_bytes
-from cjm_plugin_system.core.interface import RELOAD_TRIGGER
+from cjm_plugin_system.core.interface import RELOAD_TRIGGER, EnvVarSpec
 from cjm_plugin_system.core.errors import (
-    PluginInputError, PluginFatalError, PluginResourceError, ResourceShortfall,
+    PluginInputError, PluginFatalError,
 )
 from cjm_plugin_system.utils.validation import (
     dict_to_config, config_to_dict, validate_config, dataclass_to_jsonschema,
@@ -47,6 +46,11 @@ from cjm_plugin_system.utils.validation import (
 from cjm_transcription_plugin_whisper.meta import (
     get_plugin_metadata
 )
+
+# Shared torch helpers (cjm-torch-plugin-utils): release + CUDA-OOM typing + device resolution.
+from cjm_torch_plugin_utils.memory import release_model
+from cjm_torch_plugin_utils.oom import cuda_oom_to_plugin_resource_error
+from cjm_torch_plugin_utils.device import resolve_torch_device
 
 # %% ../nbs/plugin.ipynb #96534aec-1cd2-4f03-ac08-eb1137e37ee3
 @dataclass
@@ -245,6 +249,31 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     # walks this config_class's dataclass fields for RELOAD_TRIGGER metadata and
     # fires the corresponding `_release_<trigger>` method on field changes.
     config_class = WhisperPluginConfig
+
+    # Track 19 (CR-12 worker-env model): worker spawn env declared on the class.
+    # CUDA_VISIBLE_DEVICES + OMP_NUM_THREADS are static; XDG_CACHE_HOME is templated to
+    # the substrate models dir (Whisper stores downloaded weights under
+    # <XDG_CACHE_HOME>/whisper). The substrate resolves + injects at Popen.
+    WORKER_ENV: ClassVar[List[EnvVarSpec]] = [
+        EnvVarSpec(
+            name="CUDA_VISIBLE_DEVICES",
+            default="0",
+            label="GPU Device",
+            description="Which GPU index the worker uses.",
+        ),
+        EnvVarSpec(
+            name="OMP_NUM_THREADS",
+            default="4",
+            label="OpenMP Threads",
+            description="Thread cap for CPU-side ops.",
+        ),
+        EnvVarSpec(
+            name="XDG_CACHE_HOME",
+            default="${CJM_MODELS_DIR}",
+            label="Cache Home",
+            description="XDG cache root; Whisper stores downloaded models under <XDG_CACHE_HOME>/whisper (templated to the substrate models dir).",
+        ),
+    ]
     
     def __init__(self):
         """Initialize the Whisper plugin with default configuration."""
@@ -263,7 +292,8 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     @property
     def version(self) -> str: # Plugin version string
         """Get the plugin version string."""
-        return "1.0.0"
+        from cjm_transcription_plugin_whisper import __version__
+        return __version__
     
     @property
     def supported_formats(self) -> List[str]: # List of supported audio file formats
@@ -296,11 +326,8 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         -> _release_model (fired by the substrate BEFORE this re-applies config)."""
         self.config = dict_to_config(WhisperPluginConfig, config or {})
         
-        # Resolve device
-        if self.config.device == "auto":
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        else:
-            self.device = self.config.device
+        # Resolve device ("auto" -> cuda if available, else cpu)
+        self.device = resolve_torch_device(self.config.device)
         
         # Resolve model directory
         self.model_dir = self.config.model_dir
@@ -321,46 +348,37 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         self.logger.info(f"Initialized Whisper plugin with model '{self.config.model}' on device '{self.device}'")
     
     def _release_model(self) -> None:
-        """Unload the current model and free resources."""
-        if self.model is not None:
-            self.logger.info("Unloading Whisper model for reconfiguration")
-            self.model = None
-            
-            # Clear GPU cache if using CUDA
-            if self.device == "cuda" and torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        """CR-4: release the loaded model + free CUDA cache. RELOAD_TRIGGER target for
+        model/device/model_dir/compile_model; on_disable / cleanup delegate here.
+        Idempotent via cjm-torch-plugin-utils' release_model (no-op when already None)."""
+        release_model(self, ["model"], device=self.device or "cpu", logger=self.logger)
     
     def _load_model(self) -> None:
         """Load the Whisper model (lazy loading)."""
         if self.model is None:
             try:
                 self.logger.info(f"Loading Whisper model: {self.config.model}")
-                self.model = load_model(
-                    self.config.model, 
-                    device=self.device,
-                    download_root=self.model_dir
-                )
-                
-                # Optionally compile the model (PyTorch 2.0+)
-                if self.config.compile_model and hasattr(torch, 'compile'):
-                    self.model = torch.compile(self.model)
-                    self.logger.info("Model compiled with torch.compile")
+                # Heartbeat wraps the WHOLE load: load_model downloads weights from the
+                # Azure CDN via urllib on a cold cache (silent to the substrate's stall
+                # detector), so the heartbeat keeps the (progress, message) tuple advancing.
+                with self.heartbeat("loading Whisper model"):
+                    self.model = load_model(
+                        self.config.model, 
+                        device=self.device,
+                        download_root=self.model_dir
+                    )
+                    
+                    # Optionally compile the model (PyTorch 2.0+)
+                    if self.config.compile_model and hasattr(torch, 'compile'):
+                        self.model = torch.compile(self.model)
+                        self.logger.info("Model compiled with torch.compile")
                     
                 self.logger.info("Local Whisper model loaded successfully")
             except torch.cuda.OutOfMemoryError as e:
-                # SG-47 Track B: CUDA OOM during model load is a resource error;
-                # substrate's CR-7 reactive-retry will reload + retry after evicting
-                # other plugins. ResourceShortfall carries observable numbers for
-                # operator visibility + future capacity hints.
-                free_bytes = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
-                available_mb = free_bytes / (1024 ** 2)
-                raise PluginResourceError(
-                    f"CUDA OOM loading Whisper model {self.config.model!r}: {e}",
-                    resource_shortfall=ResourceShortfall(
-                        resource='gpu_vram_mb',
-                        needed=available_mb + 100.0,  # Best-effort: > available
-                        available=available_mb,
-                    ),
+                # SG-47 Track B: CUDA OOM during model load -> typed PluginResourceError
+                # (cjm-torch-plugin-utils); substrate's CR-7 reactive-retry reloads + retries.
+                raise cuda_oom_to_plugin_resource_error(
+                    e, label=f"loading Whisper model {self.config.model!r}",
                 ) from e
             except Exception as e:
                 # SG-47: non-resource load failures (missing model, corrupt download,
@@ -466,18 +484,10 @@ class WhisperLocalPlugin(TranscriptionPlugin):
                     **whisper_args
                 )
         except torch.cuda.OutOfMemoryError as e:
-            # SG-47 Track B: CUDA OOM during Whisper inference. Substrate's
-            # CR-7 reactive-retry path reloads + retries; ResourceShortfall
-            # surfaces actual numbers for operator visibility.
-            free_bytes = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
-            available_mb = free_bytes / (1024 ** 2)
-            raise PluginResourceError(
-                f"CUDA OOM during Whisper inference (model={model_name!r}): {e}",
-                resource_shortfall=ResourceShortfall(
-                    resource='gpu_vram_mb',
-                    needed=available_mb + 100.0,
-                    available=available_mb,
-                ),
+            # SG-47 Track B: CUDA OOM during Whisper inference -> typed PluginResourceError
+            # (cjm-torch-plugin-utils); substrate's CR-7 reactive-retry reloads + retries.
+            raise cuda_oom_to_plugin_resource_error(
+                e, label=f"during Whisper inference (model={model_name!r})",
             ) from e
         
         # Process segments
