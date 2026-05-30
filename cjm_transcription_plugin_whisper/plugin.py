@@ -20,6 +20,7 @@ import warnings
 
 import numpy as np
 import torch
+from fastcore.basics import patch
 
 try:
     import whisper
@@ -315,22 +316,6 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         """Return dataclass describing the plugin's configuration options."""
         return WhisperPluginConfig
     
-    def _apply_config(
-        self,
-        config: Optional[Any] = None # Configuration dataclass, dict, or None
-    ) -> None:
-        """CR-4: apply config values + derive config-dependent state (device,
-        model_dir). No heavy-resource work. Called by initialize (first-time) and by
-        the substrate's reconfigure delta path. Model release on a model/device/
-        model_dir/compile_model change is handled declaratively via RELOAD_TRIGGER
-        -> _release_model (fired by the substrate BEFORE this re-applies config)."""
-        self.config = dict_to_config(WhisperPluginConfig, config or {})
-        
-        # Resolve device ("auto" -> cuda if available, else cpu)
-        self.device = resolve_torch_device(self.config.device)
-        
-        # Resolve model directory
-        self.model_dir = self.config.model_dir
 
     def initialize(
         self,
@@ -347,58 +332,8 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         
         self.logger.info(f"Initialized Whisper plugin with model '{self.config.model}' on device '{self.device}'")
     
-    def _release_model(self) -> None:
-        """CR-4: release the loaded model + free CUDA cache. RELOAD_TRIGGER target for
-        model/device/model_dir/compile_model; on_disable / cleanup delegate here.
-        Idempotent via cjm-torch-plugin-utils' release_model (no-op when already None)."""
-        release_model(self, ["model"], device=self.device or "cpu", logger=self.logger)
     
-    def _load_model(self) -> None:
-        """Load the Whisper model (lazy loading)."""
-        if self.model is None:
-            try:
-                self.logger.info(f"Loading Whisper model: {self.config.model}")
-                # Heartbeat wraps the WHOLE load: load_model downloads weights from the
-                # Azure CDN via urllib on a cold cache (silent to the substrate's stall
-                # detector), so the heartbeat keeps the (progress, message) tuple advancing.
-                with self.heartbeat("loading Whisper model"):
-                    self.model = load_model(
-                        self.config.model, 
-                        device=self.device,
-                        download_root=self.model_dir
-                    )
-                    
-                    # Optionally compile the model (PyTorch 2.0+)
-                    if self.config.compile_model and hasattr(torch, 'compile'):
-                        self.model = torch.compile(self.model)
-                        self.logger.info("Model compiled with torch.compile")
-                    
-                self.logger.info("Local Whisper model loaded successfully")
-            except torch.cuda.OutOfMemoryError as e:
-                # SG-47 Track B: CUDA OOM during model load -> typed PluginResourceError
-                # (cjm-torch-plugin-utils); substrate's CR-7 reactive-retry reloads + retries.
-                raise cuda_oom_to_plugin_resource_error(
-                    e, label=f"loading Whisper model {self.config.model!r}",
-                ) from e
-            except Exception as e:
-                # SG-47: non-resource load failures (missing model, corrupt download,
-                # device misconfiguration) — fatal; author/config attention needed.
-                raise PluginFatalError(f"Failed to load Whisper model: {e}") from e
     
-    def _prepare_audio(
-        self,
-        audio: Union[str, Path] # Path to a decodable audio file
-    ) -> str: # The audio file path
-        """Validate the audio input and return it as a path string.
-
-        The caller (orchestration / proxy) guarantees a model-ready audio file;
-        in-memory preparation is no longer a plugin responsibility."""
-        if isinstance(audio, (str, Path)):
-            return str(audio)
-        raise PluginInputError(  # SG-47: typed input-validation (multi-inherits ValueError)
-            f"Unsupported audio input type: {type(audio)}; expected a file path (str or Path)",
-            fields_invalid=["audio"],
-        )
     
     def execute(
         self,
@@ -552,22 +487,108 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         
         self.logger.info(f"Transcription completed: {len(result['text'].split())} words")
         return transcription_result
-    
-    def is_available(self) -> bool: # True if Whisper and its dependencies are available
-        """Check if Whisper is available."""
-        return WHISPER_AVAILABLE
-    
-    def prefetch(self) -> None:
-        """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
-        the download/load cost. Idempotent via _load_model's None-guard."""
-        self._load_model()
 
-    def on_disable(self) -> None:
-        """CR-2: release the GPU model when the operator disables the plugin (the
-        worker stays alive); lazy reload on the next execute after re-enable."""
-        self._release_model()
+# %% ../nbs/plugin.ipynb #m-apply-config
+@patch
+def _apply_config(
+    self:WhisperLocalPlugin,
+    config: Optional[Any] = None # Configuration dataclass, dict, or None
+) -> None:
+    """CR-4: apply config values + derive config-dependent state (device,
+    model_dir). No heavy-resource work. Called by initialize (first-time) and by
+    the substrate's reconfigure delta path. Model release on a model/device/
+    model_dir/compile_model change is handled declaratively via RELOAD_TRIGGER
+    -> _release_model (fired by the substrate BEFORE this re-applies config)."""
+    self.config = dict_to_config(WhisperPluginConfig, config or {})
 
-    def cleanup(self) -> None:
-        """Release resources on unload."""
-        self._release_model()
-        self.logger.info("Cleanup completed")
+    # Resolve device ("auto" -> cuda if available, else cpu)
+    self.device = resolve_torch_device(self.config.device)
+
+    # Resolve model directory
+    self.model_dir = self.config.model_dir
+
+# %% ../nbs/plugin.ipynb #m-release-model
+@patch
+def _release_model(self:WhisperLocalPlugin) -> None:
+    """CR-4: release the loaded model + free CUDA cache. RELOAD_TRIGGER target for
+    model/device/model_dir/compile_model; on_disable / cleanup delegate here.
+    Idempotent via cjm-torch-plugin-utils' release_model (no-op when already None)."""
+    release_model(self, ["model"], device=self.device or "cpu", logger=self.logger)
+
+# %% ../nbs/plugin.ipynb #m-load-model
+@patch
+def _load_model(self:WhisperLocalPlugin) -> None:
+    """Load the Whisper model (lazy loading)."""
+    if self.model is None:
+        try:
+            self.logger.info(f"Loading Whisper model: {self.config.model}")
+            # Heartbeat wraps the WHOLE load: load_model downloads weights from the
+            # Azure CDN via urllib on a cold cache (silent to the substrate's stall
+            # detector), so the heartbeat keeps the (progress, message) tuple advancing.
+            with self.heartbeat("loading Whisper model"):
+                self.model = load_model(
+                    self.config.model, 
+                    device=self.device,
+                    download_root=self.model_dir
+                )
+
+                # Optionally compile the model (PyTorch 2.0+)
+                if self.config.compile_model and hasattr(torch, 'compile'):
+                    self.model = torch.compile(self.model)
+                    self.logger.info("Model compiled with torch.compile")
+
+            self.logger.info("Local Whisper model loaded successfully")
+        except torch.cuda.OutOfMemoryError as e:
+            # SG-47 Track B: CUDA OOM during model load -> typed PluginResourceError
+            # (cjm-torch-plugin-utils); substrate's CR-7 reactive-retry reloads + retries.
+            raise cuda_oom_to_plugin_resource_error(
+                e, label=f"loading Whisper model {self.config.model!r}",
+            ) from e
+        except Exception as e:
+            # SG-47: non-resource load failures (missing model, corrupt download,
+            # device misconfiguration) — fatal; author/config attention needed.
+            raise PluginFatalError(f"Failed to load Whisper model: {e}") from e
+
+# %% ../nbs/plugin.ipynb #m-prepare-audio
+@patch
+def _prepare_audio(
+    self:WhisperLocalPlugin,
+    audio: Union[str, Path] # Path to a decodable audio file
+) -> str: # The audio file path
+    """Validate the audio input and return it as a path string.
+
+    The caller (orchestration / proxy) guarantees a model-ready audio file;
+    in-memory preparation is no longer a plugin responsibility."""
+    if isinstance(audio, (str, Path)):
+        return str(audio)
+    raise PluginInputError(  # SG-47: typed input-validation (multi-inherits ValueError)
+        f"Unsupported audio input type: {type(audio)}; expected a file path (str or Path)",
+        fields_invalid=["audio"],
+    )
+
+# %% ../nbs/plugin.ipynb #m-is-available
+@patch
+def is_available(self:WhisperLocalPlugin) -> bool: # True if Whisper and its dependencies are available
+    """Check if Whisper is available."""
+    return WHISPER_AVAILABLE
+
+# %% ../nbs/plugin.ipynb #m-prefetch
+@patch
+def prefetch(self:WhisperLocalPlugin) -> None:
+    """CR-4 (SG-19): eagerly load the model so the first execute() doesn't pay
+    the download/load cost. Idempotent via _load_model's None-guard."""
+    self._load_model()
+
+# %% ../nbs/plugin.ipynb #m-on-disable
+@patch
+def on_disable(self:WhisperLocalPlugin) -> None:
+    """CR-2: release the GPU model when the operator disables the plugin (the
+    worker stays alive); lazy reload on the next execute after re-enable."""
+    self._release_model()
+
+# %% ../nbs/plugin.ipynb #m-cleanup
+@patch
+def cleanup(self:WhisperLocalPlugin) -> None:
+    """Release resources on unload."""
+    self._release_model()
+    self.logger.info("Cleanup completed")
