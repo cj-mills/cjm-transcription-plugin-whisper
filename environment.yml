@@ -32,9 +32,6 @@ dependencies:
     - soundfile
     - numpy
 
-    # FFmpeg utilities
-    - cjm-ffmpeg-utils
-
     # Utilities
     - fastcore
     - pandas
