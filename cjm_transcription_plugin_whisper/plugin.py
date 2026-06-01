@@ -39,6 +39,7 @@ from cjm_transcription_plugin_system.plugin_interface import TranscriptionPlugin
 from cjm_transcription_plugin_system.core import TranscriptionResult
 from cjm_transcription_plugin_system.storage import TranscriptionStorage
 from cjm_plugin_system.utils.hashing import hash_file, hash_bytes, hash_dict_canonical
+from .meta import get_plugin_metadata
 from cjm_plugin_system.core.interface import RELOAD_TRIGGER, EnvVarSpec
 from cjm_plugin_system.core.errors import (
     PluginInputError, PluginFatalError,
@@ -292,7 +293,7 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     @property
     def name(self) -> str: # Plugin name identifier
         """Get the plugin name identifier."""
-        return "whisper_local"
+        return get_plugin_metadata()["name"]
     
     @property
     def version(self) -> str: # Plugin version string
