@@ -144,7 +144,8 @@ def run_e2e() -> None:
     log.info(f"Submitting submit_sequence for {TEST_AUDIO.name}...")
     t0 = time.time()
     result = asyncio.run(run_sequence())
-    text = result.get("text") if isinstance(result, dict) else getattr(result, "text", "")
+    from cjm_transcription_plugin_system.core import TranscriptionResult  # noqa: F401 — registers the wire kind (typed decode)
+    text = result.text  # typed TranscriptionResult (stage-2 wire layer)
     log.info(f"Sequence completed in {time.time() - t0:.1f}s: text={text[:120]!r}")
     assert text and text.strip(), f"Empty transcription; raw result={result!r}"
 
