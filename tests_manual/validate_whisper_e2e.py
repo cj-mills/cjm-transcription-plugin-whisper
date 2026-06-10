@@ -83,7 +83,8 @@ def run_e2e() -> None:
 
     from cjm_plugin_system.core.manager import PluginManager
     from cjm_plugin_system.core.config import get_config
-    from cjm_plugin_system.core.queue import JobQueue, SequenceStep, JobStatus
+    from cjm_plugin_system.core.queue import JobQueue
+    from cjm_plugin_system.core.ports import Composition, CompositionNode, NodeState, OutputRef
 
     cfg = get_config()
     log.info(f"data_dir={cfg.data_dir}, models_dir={cfg.models_dir}")
@@ -108,45 +109,35 @@ def run_e2e() -> None:
     pm.get_plugin(whisper_id).prefetch()
     log.info(f"prefetch() returned in {time.time() - t0:.1f}s")
 
-    ffmpeg_data_dir = Path(next(m for m in pm.discovered if m.name == FFMPEG_NAME).manifest["db_path"]).parent
-    predicted_wav = ffmpeg_data_dir / "converted" / f"{TEST_AUDIO.stem}.wav"
-    log.info(f"ffmpeg will convert {TEST_AUDIO.name} -> {predicted_wav}")
-
-    async def run_sequence() -> Any:
+    # CR-16 (stage 3): the composition binds the consumer's input to ffmpeg's
+    # ACTUAL hashed cache_dir_for_config output path at execution time via
+    # OutputRef — the predict-the-path pattern is retired.
+    async def run_composition() -> Any:
         queue = JobQueue(deps=pm, sysmon_plugin_name=SYSMON_NAME)
         await queue.start()
         try:
-            seq_id = await queue.submit_sequence(
-                steps=[
-                    SequenceStep(plugin_instance_id=FFMPEG_NAME, kwargs={
-                        "action": "convert", "input_path": str(TEST_AUDIO),
-                        "output_format": "wav", "sample_rate": 16000, "channels": 1,
-                    }),
-                    SequenceStep(plugin_instance_id=whisper_id, kwargs={"audio": str(predicted_wav)}),
-                ],
-                fail_fast=True,
-            )
-            log.info(f"Submitted sequence {seq_id}: ffmpeg.convert -> whisper.execute")
-            terminal = {JobStatus.completed, JobStatus.failed, JobStatus.cancelled}
-            while True:
-                seq = queue.get_sequence(seq_id)
-                if seq is None:
-                    raise RuntimeError(f"sequence {seq_id} disappeared")
-                if seq.status in terminal:
-                    break
-                await asyncio.sleep(0.5)
-            if seq.status != JobStatus.completed:
-                raise RuntimeError(f"Sequence {seq_id} status={seq.status}; results={seq.results}")
-            return seq.results[-1].result
+            comp_id = await queue.submit_composition(Composition(nodes=[
+                CompositionNode("convert", FFMPEG_NAME, {
+                    "action": "convert", "input_path": str(TEST_AUDIO),
+                    "output_format": "wav", "sample_rate": 16000, "channels": 1,
+                }),
+                CompositionNode("transcribe", whisper_id,
+                                {"audio": OutputRef("convert", "output_path")}),
+            ]))
+            log.info(f"Submitted composition {comp_id}: ffmpeg.convert -> whisper.execute")
+            run = await queue.wait_for_composition(comp_id)
+            if run.status != NodeState.completed:
+                raise RuntimeError(f"Composition {comp_id} status={run.status}; nodes={run.node_runs}")
+            return run.results_by_node()["transcribe"]
         finally:
             await queue.stop()
 
-    log.info(f"Submitting submit_sequence for {TEST_AUDIO.name}...")
+    log.info(f"Submitting composition for {TEST_AUDIO.name}...")
     t0 = time.time()
-    result = asyncio.run(run_sequence())
+    result = asyncio.run(run_composition())
     from cjm_transcription_plugin_system.core import TranscriptionResult  # noqa: F401 — registers the wire kind (typed decode)
     text = result.text  # typed TranscriptionResult (stage-2 wire layer)
-    log.info(f"Sequence completed in {time.time() - t0:.1f}s: text={text[:120]!r}")
+    log.info(f"Composition completed in {time.time() - t0:.1f}s: text={text[:120]!r}")
     assert text and text.strip(), f"Empty transcription; raw result={result!r}"
 
     # Plugin DB: confirm the transcription row persisted.
