@@ -12,7 +12,7 @@ license = {text = "Apache-2.0"}
 authors = [{name = "Christian J. Mills", email = "9126128+cj-mills@users.noreply.github.com"}]
 keywords = ['nbdev', 'jupyter', 'notebook', 'python']
 classifiers = ["Natural Language :: English", "Intended Audience :: Developers", "Development Status :: 3 - Alpha", "Programming Language :: Python :: 3", "Programming Language :: Python :: 3 :: Only"]
-dependencies = ['fastcore', 'pandas', 'cjm_plugin_system>=0.0.45', 'cjm_capability_primitives>=0.0.1', 'openai-whisper', 'torch', 'numpy', 'soundfile', 'cjm-torch-plugin-utils>=0.0.9']
+dependencies = ['fastcore', 'pandas', 'cjm_plugin_system>=0.0.46', 'cjm_capability_primitives>=0.0.3', 'openai-whisper', 'torch', 'numpy', 'soundfile', 'cjm-torch-plugin-utils>=0.0.10']
 
 [project.urls]
 Repository = "https://github.com/cj-mills/cjm-transcription-plugin-whisper"
