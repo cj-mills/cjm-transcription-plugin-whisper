@@ -20,9 +20,10 @@ dependencies:
     - torch
     - torchaudio
 
-    # Core plugin infrastructure
-    - cjm-plugin-system
-    - cjm-transcription-plugin-system
+    # Result data noun (TranscriptionResult). Substrate (cjm-plugin-system) is
+    # AUTO-INJECTED by `cjm-ctl install-all` (schema v2), so it is no longer
+    # listed here — same reason it was dropped from plugins.yaml interface_libs.
+    - cjm-capability-primitives
 
     # Shared torch helpers for plugins (release_model / cuda_oom / resolve_device)
     - cjm-torch-plugin-utils
