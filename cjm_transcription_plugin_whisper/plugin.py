@@ -11,7 +11,6 @@ __all__ = ['WHISPER_AVAILABLE', 'WhisperPluginConfig', 'WhisperLocalPlugin']
 import json
 import os
 import sys
-from uuid import uuid4
 import logging
 from pathlib import Path
 from dataclasses import dataclass, field
@@ -34,23 +33,19 @@ except ImportError:
 # FFmpeg availability (replaces the retired cjm-ffmpeg-utils FFMPEG_AVAILABLE, which was
 # just `shutil.which("ffmpeg") is not None`). Whisper shells out to ffmpeg to decode audio.
 WHISPER_AVAILABLE = _WHISPER_IMPORT_OK and shutil.which("ffmpeg") is not None
-    
-from cjm_transcription_plugin_system.plugin_interface import TranscriptionPlugin
-from cjm_transcription_plugin_system.core import TranscriptionResult
-from cjm_transcription_plugin_system.storage import TranscriptionStorage
-from cjm_plugin_system.utils.hashing import hash_file, hash_bytes, hash_dict_canonical
-from .meta import get_plugin_metadata
-from cjm_plugin_system.core.interface import RELOAD_TRIGGER, EnvVarSpec
+
+# Stage 8 (Option C / PILLAR 1c): the tool re-bases onto ToolCapability (pure
+# compute). The cache/persist bookends + the TranscriptionResult data noun moved
+# OUT — the generic adapter (cjm-transcription-adapter-interface) owns the cache,
+# and the result DTO lives in cjm-capability-primitives. No get_plugin_metadata.
+from cjm_plugin_system.core.capability import ToolCapability, RELOAD_TRIGGER, EnvVarSpec
+from cjm_capability_primitives.transcription import TranscriptionResult
 from cjm_plugin_system.core.errors import (
     PluginInputError, PluginFatalError,
 )
 from cjm_plugin_system.utils.validation import (
     dict_to_config, config_to_dict, validate_config, dataclass_to_jsonschema,
     SCHEMA_TITLE, SCHEMA_DESC, SCHEMA_MIN, SCHEMA_MAX, SCHEMA_ENUM
-)
-
-from cjm_transcription_plugin_whisper.meta import (
-    get_plugin_metadata
 )
 
 # Shared torch helpers (cjm-torch-plugin-utils): release + CUDA-OOM typing + device resolution.
@@ -248,8 +243,15 @@ class WhisperPluginConfig:
     )
 
 # %% ../nbs/plugin.ipynb #12e9f5c3
-class WhisperLocalPlugin(TranscriptionPlugin):
-    """OpenAI Whisper transcription plugin."""
+class WhisperLocalPlugin(ToolCapability):
+    """OpenAI Whisper transcription plugin (stage 8: pure-compute tool capability).
+
+    Native-surface model (PILLAR 1c): this tool is PURE COMPUTE — `transcribe`
+    loads the model, runs inference, and builds the typed `TranscriptionResult`.
+    The cache-check + persistence bookends + the per-call `force` control live in
+    the generic transcription adapter (cjm-transcription-adapter-interface); the
+    result DTO lives in cjm-capability-primitives; identity is derived from the
+    installed distribution. No `get_plugin_metadata`, no `self.storage`."""
 
     # CR-4: declarative reload-triggers — substrate's reconfigure_with_triggers
     # walks this config_class's dataclass fields for RELOAD_TRIGGER metadata and
@@ -280,7 +282,7 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             description="XDG cache root; Whisper stores downloaded models under <XDG_CACHE_HOME>/whisper (templated to the substrate models dir).",
         ),
     ]
-    
+
     def __init__(self):
         """Initialize the Whisper plugin with default configuration."""
         self.logger = logging.getLogger(f"{__name__}.{type(self).__name__}")
@@ -288,23 +290,23 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         self.model = None
         self.device = None
         self.model_dir = None
-        self.storage: Optional[TranscriptionStorage] = None
-    
+
     @property
     def name(self) -> str: # Plugin name identifier
-        """Get the plugin name identifier."""
-        return get_plugin_metadata()["name"]
-    
+        """Plugin identity, derived from the installed distribution (PILLAR 1c).
+
+        Runtime-derived: in the worker / in-env introspection `__package__`
+        resolves; the manifest records the same value independently (the
+        dual-mode generator reads it from the distribution)."""
+        from importlib.metadata import metadata, packages_distributions
+        dist = (packages_distributions().get(__package__) or [__package__.replace("_", "-")])[0]
+        return metadata(dist)["Name"]
+
     @property
     def version(self) -> str: # Plugin version string
         """Get the plugin version string."""
         from cjm_transcription_plugin_whisper import __version__
         return __version__
-    
-    @property
-    def supported_formats(self) -> List[str]: # List of supported audio file formats
-        """Get the list of supported audio file formats."""
-        return ["wav", "mp3", "flac", "m4a", "ogg", "webm", "mp4", "avi", "mov"]
 
     def get_current_config(self) -> Dict[str, Any]: # Current configuration as dictionary
         """Return current configuration state."""
@@ -320,7 +322,6 @@ class WhisperLocalPlugin(TranscriptionPlugin):
     def get_config_dataclass() -> WhisperPluginConfig: # Configuration dataclass
         """Return dataclass describing the plugin's configuration options."""
         return WhisperPluginConfig
-    
 
     def initialize(
         self,
@@ -330,77 +331,48 @@ class WhisperLocalPlugin(TranscriptionPlugin):
         by declarative RELOAD_TRIGGER metadata; the substrate's reconfigure path fires
         _release_model then re-applies config via _apply_config."""
         self._apply_config(config)
-        
-        # Initialize standardized storage (one-time)
-        db_path = get_plugin_metadata()["db_path"]
-        self.storage = TranscriptionStorage(db_path)
-        
         self.logger.info(f"Initialized Whisper plugin with model '{self.config.model}' on device '{self.device}'")
-    
-    
-    
-    
-    def execute(
+
+    def transcribe(
         self,
-        audio: Union[str, Path], # Path to the audio file to transcribe
-        **kwargs # Additional arguments to override config
-    ) -> TranscriptionResult: # Transcription result with text and metadata
-        """Transcribe audio using Whisper.
+        audio: Union[str, Path], # Path to MODEL-READY audio (converted upstream)
+        **kwargs # Provenance (source_start_time/source_end_time) stamped into metadata
+    ) -> TranscriptionResult: # Typed transcription output
+        """Transcribe model-ready audio using Whisper — PURE COMPUTE.
 
-        `audio` is a path to a decodable audio file; the caller guarantees it is
-        model-ready (format / sample-rate / channels handled upstream)."""
-        # Validate + resolve the input path
+        Stage 8 / PILLAR 1c: the cache-check + persistence bookends moved to the
+        generic transcription adapter; this method loads the model, runs
+        inference, and builds the typed result. Model params come from
+        `self.config` (the CR-15 per-call override path is gone — the tool runs
+        its effective config, no metadata lie); `source_start_time` /
+        `source_end_time` ride the provenance kwarg channel into metadata."""
+        # Validate + resolve the input path, then load the model.
         audio_path = self._prepare_audio(audio)
-
-        # Hash the audio file (content) for the cache key
-        audio_hash = hash_file(audio_path)
-
-        # Hash the effective config for cache keying. CR-15: config_hash derives from
-        # self.config (the effective config). The per-call kwargs config-overrides below
-        # are NOT reflected here — that override path predates the substrate overhaul and
-        # is slated for removal (see project_execute_invocation_contract_gap / candidate CR-15).
-        config_hash = hash_dict_canonical(config_to_dict(self.config))
-
-        # 1. Cache check (content-correct: audio_path + audio_hash + config_hash), before
-        #    loading the model so a pure cache hit skips the model load entirely.
-        if not kwargs.get("force", False):
-            cached = self.storage.get_cached(str(audio), audio_hash, config_hash)
-            if cached:
-                self.logger.info(f"Using cached transcription for {audio}")
-                return TranscriptionResult(
-                    text=cached.text,
-                    confidence=None,
-                    segments=cached.segments,
-                    metadata=cached.metadata,
-                )
-
-        # 2. Cache miss — load the model and transcribe
         self._load_model()
 
-        # Get config values, allowing kwargs overrides
-        # CR-15: these per-call config-overrides bypass reconfigure/persistence/validation/
-        # config_hash and are slated for removal; provenance kwargs (job_id/source_*_time) stay.
-        model_name = kwargs.get("model", self.config.model)
-        task = kwargs.get("task", self.config.task)
-        language = kwargs.get("language", self.config.language)
-        beam_size = kwargs.get("beam_size", self.config.beam_size)
-        best_of = kwargs.get("best_of", self.config.best_of)
-        patience = kwargs.get("patience", self.config.patience)
-        length_penalty = kwargs.get("length_penalty", self.config.length_penalty)
-        suppress_tokens = kwargs.get("suppress_tokens", self.config.suppress_tokens)
-        initial_prompt = kwargs.get("initial_prompt", self.config.initial_prompt)
-        condition_on_previous_text = kwargs.get("condition_on_previous_text", self.config.condition_on_previous_text)
-        fp16 = kwargs.get("fp16", self.config.fp16)
-        compression_ratio_threshold = kwargs.get("compression_ratio_threshold", self.config.compression_ratio_threshold)
-        logprob_threshold = kwargs.get("logprob_threshold", self.config.logprob_threshold)
-        no_speech_threshold = kwargs.get("no_speech_threshold", self.config.no_speech_threshold)
-        word_timestamps = kwargs.get("word_timestamps", self.config.word_timestamps)
-        prepend_punctuations = kwargs.get("prepend_punctuations", self.config.prepend_punctuations)
-        append_punctuations = kwargs.get("append_punctuations", self.config.append_punctuations)
-        temperature = kwargs.get("temperature", self.config.temperature)
-        temp_increment = kwargs.get("temperature_increment_on_fallback", self.config.temperature_increment_on_fallback)
-        threads = kwargs.get("threads", self.config.threads)
-        
+        # Effective config (no per-call override path).
+        c = self.config
+        model_name = c.model
+        task = c.task
+        language = c.language
+        beam_size = c.beam_size
+        best_of = c.best_of
+        patience = c.patience
+        length_penalty = c.length_penalty
+        suppress_tokens = c.suppress_tokens
+        initial_prompt = c.initial_prompt
+        condition_on_previous_text = c.condition_on_previous_text
+        fp16 = c.fp16
+        compression_ratio_threshold = c.compression_ratio_threshold
+        logprob_threshold = c.logprob_threshold
+        no_speech_threshold = c.no_speech_threshold
+        word_timestamps = c.word_timestamps
+        prepend_punctuations = c.prepend_punctuations
+        append_punctuations = c.append_punctuations
+        temperature = c.temperature
+        temp_increment = c.temperature_increment_on_fallback
+        threads = c.threads
+
         # Prepare Whisper arguments
         whisper_args = {
             "verbose": False,
@@ -421,20 +393,20 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             "prepend_punctuations": prepend_punctuations,
             "append_punctuations": append_punctuations,
         }
-        
+
         # Handle temperature settings
         if temp_increment is not None and temp_increment > 0:
             temperature = tuple(np.arange(temperature, 1.0 + 1e-6, temp_increment))
         else:
             temperature = [temperature]
-        
+
         # Set number of threads if specified
         if threads > 0:
             torch.set_num_threads(threads)
-        
+
         # Perform transcription
         self.logger.info(f"Transcribing audio with Whisper {model_name}")
-        
+
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")  # Suppress Whisper warnings
@@ -450,7 +422,7 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             raise cuda_oom_to_plugin_resource_error(
                 e, label=f"during Whisper inference (model={model_name!r})",
             ) from e
-        
+
         # Process segments
         segments = []
         for segment in result.get("segments", []):
@@ -459,7 +431,7 @@ class WhisperLocalPlugin(TranscriptionPlugin):
                 "end": segment["end"],
                 "text": segment["text"].strip()
             }
-            
+
             # Add word timestamps if available
             if "words" in segment and word_timestamps:
                 segment_data["words"] = [
@@ -471,15 +443,15 @@ class WhisperLocalPlugin(TranscriptionPlugin):
                     }
                     for word in segment["words"]
                 ]
-            
+
             segments.append(segment_data)
 
         # Capture provenance metadata passed via kwargs
         provenance_meta = {
-            k: v for k, v in kwargs.items() 
+            k: v for k, v in kwargs.items()
             if k in ['source_start_time', 'source_end_time']
         }
-        
+
         # Create transcription result
         transcription_result = TranscriptionResult(
             text=result["text"].strip(),
@@ -495,23 +467,6 @@ class WhisperLocalPlugin(TranscriptionPlugin):
             }
         )
 
-        # Hash the transcription output
-        text_hash = hash_bytes(transcription_result.text.encode())
-
-        # Save to standardized storage (helper logs success/failure; never raises)
-        job_id = kwargs.get("job_id", str(uuid4()))
-        self.storage.save_with_logging(
-            job_id=job_id,
-            audio_path=str(audio),
-            audio_hash=audio_hash,
-            config_hash=config_hash,
-            text=transcription_result.text,
-            text_hash=text_hash,
-            segments=transcription_result.segments,
-            metadata=transcription_result.metadata,
-            logger=self.logger,
-        )
-        
         self.logger.info(f"Transcription completed: {len(result['text'].split())} words")
         return transcription_result
 
