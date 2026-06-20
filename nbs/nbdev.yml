@@ -2,8 +2,8 @@ project:
   output-dir: _docs
 
 website:
-  title: "cjm-transcription-plugin-whisper"
-  site-url: "https://cj-mills.github.io/cjm-transcription-plugin-whisper"
-  description: "OpenAI Whisper plugin for the cjm-transcription-plugin-system library - provides local speech-to-text transcription with configurable model selection and parameter control."
+  title: "cjm-capability-whisper"
+  site-url: "https://cj-mills.github.io/cjm-capability-whisper"
+  description: "An OpenAI Whisper speech-to-text capability for the cjm-substrate runtime that provides local transcription with configurable model selection and parameter control."
   repo-branch: main
-  repo-url: "https://github.com/cj-mills/cjm-transcription-plugin-whisper"
+  repo-url: "https://github.com/cj-mills/cjm-capability-whisper"

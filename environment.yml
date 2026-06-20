@@ -1,6 +1,6 @@
-# Environment for cjm-transcription-plugin-whisper
+# Environment for cjm-capability-whisper
 # Provides OpenAI Whisper with PyTorch CUDA support
-name: cjm-transcription-plugin-whisper
+name: cjm-capability-whisper
 channels:
   - pytorch
   - nvidia
@@ -20,13 +20,13 @@ dependencies:
     - torch
     - torchaudio
 
-    # Result data noun (TranscriptionResult). Substrate (cjm-plugin-system) is
+    # Result data noun (TranscriptionResult). Substrate (cjm-substrate) is
     # AUTO-INJECTED by `cjm-ctl install-all` (schema v2), so it is no longer
-    # listed here — same reason it was dropped from plugins.yaml interface_libs.
+    # listed here — same reason it was dropped from capabilities.yaml interface_libs.
     - cjm-capability-primitives
 
-    # Shared torch helpers for plugins (release_model / cuda_oom / resolve_device)
-    - cjm-torch-plugin-utils
+    # Shared torch helpers for capabilities (release_model / cuda_oom / resolve_device)
+    - cjm-substrate-torch-utils
 
     # Whisper and dependencies
     - openai-whisper
